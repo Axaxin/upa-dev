@@ -134,6 +134,9 @@ ALLOWED_MODULES = {
     "unicodedata", "decimal", "fractions", "statistics", "copy",
 }
 
+# Retry configuration
+MAX_SECURITY_RETRIES = 3  # Max retries for security violations
+
 
 class SecurityChecker(ast.NodeVisitor):
     """AST visitor to check for dangerous code patterns."""
@@ -192,17 +195,46 @@ def create_client() -> OpenAI:
     )
 
 
-def generate_code(client: OpenAI, query: str) -> str:
-    """Call LLM to generate Python code for the query."""
+def generate_code(client: OpenAI, query: str, error_feedback: str | None = None, conversation_history: list | None = None) -> tuple[str, list]:
+    """
+    Call LLM to generate Python code for the query.
+
+    Args:
+        client: OpenAI client
+        query: User query
+        error_feedback: Optional error message from previous attempt
+        conversation_history: Previous messages for retry context
+
+    Returns:
+        (response_content, updated_conversation_history)
+    """
+    # Build message list
+    if conversation_history is None:
+        messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+        ]
+    else:
+        messages = conversation_history
+
+    # Add error feedback if provided
+    if error_feedback:
+        messages.append({
+            "role": "user",
+            "content": f"{query}\n\n【上一次代码的安全检查错误】：\n{error_feedback}\n\n请修复上述问题，重新生成代码。只输出代码，不要解释。"
+        })
+    else:
+        messages.append({
+            "role": "user",
+            "content": query
+        })
+
     response = client.chat.completions.create(
         model=DASHSCOPE_MODEL,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": query},
-        ],
+        messages=messages,
         temperature=0.7,
     )
-    return response.choices[0].message.content or ""
+
+    return response.choices[0].message.content or "", messages
 
 
 def extract_code(response: str) -> str | None:
@@ -281,21 +313,75 @@ def main():
     # Create client
     client = create_client()
 
-    # Generate code (LLM call)
+    # ==========================================================================
+    # Phase 1: Code Generation with Security Retry Loop
+    # ==========================================================================
     print("Thinking...", file=sys.stderr)
-    timer.start("LLM Generate")
-    response = generate_code(client, args.query)
-    timer.stop()
 
-    # Extract code
-    timer.start("Code Extract")
-    code = extract_code(response)
-    timer.stop()
+    # Use separate timers for nested operations
+    llm_timer = Timer()
+    security_timer = Timer()
+    code_extract_timer = Timer()
 
-    if not code:
-        print("No Python code found in response:", file=sys.stderr)
-        print(response)
-        sys.exit(1)
+    code = None
+    response = None
+    conversation_history = None
+    error_feedback = None
+
+    for attempt in range(MAX_SECURITY_RETRIES):
+        # Generate code (with error feedback on retry)
+        llm_timer.start("LLM Generate")
+        response, conversation_history = generate_code(
+            client,
+            args.query,
+            error_feedback=error_feedback,
+            conversation_history=conversation_history
+        )
+        llm_timer.stop()
+
+        # Extract code
+        code_extract_timer.start("Code Extract")
+        code = extract_code(response)
+        code_extract_timer.stop()
+
+        if not code:
+            if attempt < MAX_SECURITY_RETRIES - 1:
+                error_feedback = "错误：未找到Python代码块。请确保输出格式为 ```python ... ```"
+                print(f"  No code block found, retrying... ({attempt + 1}/{MAX_SECURITY_RETRIES})", file=sys.stderr)
+                continue
+            else:
+                print("\n无法生成有效的Python代码。", file=sys.stderr)
+                print(f"LLM原始响应:\n{response}", file=sys.stderr)
+                sys.exit(1)
+
+        # Security check
+        security_timer.start("Security Check")
+        violations = check_code_safety(code)
+        security_timer.stop()
+
+        if violations:
+            if attempt < MAX_SECURITY_RETRIES - 1:
+                # Build error feedback for retry
+                error_feedback = "安全违规：\n" + "\n".join(f"  - {v}" for v in violations)
+                print(f"  Security violations detected, retrying... ({attempt + 1}/{MAX_SECURITY_RETRIES})", file=sys.stderr)
+                continue
+            else:
+                print(f"\n经过 {MAX_SECURITY_RETRIES} 次尝试，仍无法生成符合安全要求的代码。", file=sys.stderr)
+                print("检测到的安全问题:", file=sys.stderr)
+                for v in violations:
+                    print(f"  - {v}", file=sys.stderr)
+                if args.show_code:
+                    print("\n生成的代码:", file=sys.stderr)
+                    print(code, file=sys.stderr)
+                sys.exit(1)
+
+        # Security passed, exit retry loop
+        break
+
+    # Merge all timers into the main timer for reporting
+    timer.records.extend(llm_timer.records)
+    timer.records.extend(code_extract_timer.records)
+    timer.records.extend(security_timer.records)
 
     # Show code if requested
     if args.show_code:
@@ -303,25 +389,21 @@ def main():
         print(code, file=sys.stderr)
         print("--- Execution Result ---", file=sys.stderr)
 
-    # Security check
-    timer.start("Security Check")
-    violations = check_code_safety(code)
-    timer.stop()
-
-    if violations:
-        print("Security violations detected:", file=sys.stderr)
-        for v in violations:
-            print(f"  - {v}", file=sys.stderr)
-        sys.exit(1)
-
-    # Execute code
+    # ==========================================================================
+    # Phase 2: Execute Code (with error reporting, no retry for logic errors)
+    # ==========================================================================
     timer.start("Code Execute")
     output, error = execute_code(code)
     timer.stop()
 
     if error:
-        print("Execution Error:", file=sys.stderr)
+        print(f"\n代码执行时发生错误:", file=sys.stderr)
         print(error, file=sys.stderr)
+        print(f"\n问题类型: 代码逻辑错误（非安全问题）", file=sys.stderr)
+        print(f"建议: 检查代码逻辑或重新表述您的需求", file=sys.stderr)
+        if args.show_code:
+            print("\n执行的代码:", file=sys.stderr)
+            print(code, file=sys.stderr)
         sys.exit(1)
 
     # Print result
