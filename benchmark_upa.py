@@ -113,11 +113,11 @@ BENCHMARK_CASES: list[TestCase] = [
     TestCase("数组交集", "找出 [1,2,3,4,5] 和 [4,5,6,7,8] 的交集", Complexity.COMPLEX, expect_pattern=r"\[4,\s*5\]"),
     TestCase("统计计算", "计算列表 [1,2,3,4,5,6,7,8,9,10] 的平均值", Complexity.COMPLEX, expect_numeric=(5.5, 0.1)),
     TestCase("冒泡排序", "用冒泡排序对 [64, 34, 25, 12, 22, 11, 90] 排序", Complexity.COMPLEX),
-    TestCase("二分查找", "判断 17 是否在有序列表 [2,5,8,12,16,23,38,56,72,91] 中", Complexity.COMPLEX, expect_contains="不在"),
+    TestCase("二分查找", "判断 17 是否在有序列表 [2,5,8,12,16,23,38,56,72,91] 中。如果是输出True，否则输出False", Complexity.COMPLEX, expect_contains="False"),
     TestCase("矩阵转置", "将矩阵 [[1,2,3],[4,5,6]] 转置", Complexity.COMPLEX),
     TestCase("生成密码", "生成一个包含大小写字母和数字的8位随机密码", Complexity.COMPLEX),
     TestCase("凯撒密码", "用凯撒密码加密 'hello'，偏移量为3", Complexity.COMPLEX, expect_contains="khoor"),
-    TestCase("水仙花数", "找出100-999之间的所有水仙花数", Complexity.COMPLEX, expect_contains="153"),
+    TestCase("水仙花数", "找出100-999之间的所有水仙花数，用列表格式输出如[153, 370, 371, 407]", Complexity.COMPLEX, expect_contains="153"),
     TestCase("最长公共子串", "找出 'abcdefg' 和 'xcdey' 的最长公共子串", Complexity.COMPLEX, expect_contains="cde"),
 
     # ---- Edge Cases ----
@@ -127,7 +127,7 @@ BENCHMARK_CASES: list[TestCase] = [
     TestCase("中文数字", "将中文数字 '三百五十六' 转换为阿拉伯数字", Complexity.EDGE_CASE, expect_numeric=(356, 0)),
     TestCase("Emoji统计", "统计字符串 '🎉🎊🎁' 中emoji的数量", Complexity.EDGE_CASE, expect_numeric=(3, 0)),
     TestCase("空列表处理", "对空列表 [] 求和，结果应该是0", Complexity.EDGE_CASE, expect_numeric=(0, 0)),
-    TestCase("除零处理", "计算 1/0 会怎样", Complexity.EDGE_CASE, expect_contains="错误"),
+    TestCase("除零处理", "计算 1/0 会怎样", Complexity.EDGE_CASE, expect_contains="Error"),
     TestCase("科学计数法", "将 0.0000123 转为科学计数法", Complexity.EDGE_CASE, expect_contains="1.23"),
     TestCase("罗马数字", "将罗马数字 'MMXXIV' 转为阿拉伯数字", Complexity.EDGE_CASE, expect_numeric=(2024, 10)),
     TestCase("Unicode处理", "输出字符串 '你好🌍世界' 的长度", Complexity.EDGE_CASE, expect_numeric=(5, 1)),
