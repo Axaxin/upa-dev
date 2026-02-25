@@ -1,0 +1,134 @@
+这份设计文档基于**“全量代码化（Unified Programmatic Architecture）”**的激进理念进行了重构。在这种架构下，意图识别（Router）被取消，系统通过单一的代码执行引擎处理从“闲聊”到“复杂逻辑”的所有任务。
+
+---
+
+# 统一程序化智能体 (UPA) 系统设计文档
+**架构范式**: Always-Code Execution (ACE)
+**版本**: v2.0 (全量代码化版本)
+
+---
+
+## 1. 系统愿景 (System Vision)
+本系统将 LLM 视为一个**即时代码引擎 (JIT Code Engine)**。用户的所有输入（无论指令、数据处理还是闲聊）都被视为一个需要通过 Python 脚本解决的任务。
+- **统一性**：消除对话与工具调用的边界，系统输出永远是可执行的 Python 代码。
+- **确定性**：最终用户看到的回答是代码执行的 `stdout`（标准输出），确保逻辑运算的 100% 准确。
+- **进化性**：通过代码缓存和自愈机制，系统能自动沉淀处理特例的高效脚本。
+
+---
+
+## 2. 核心工作流 (The ACE Workflow)
+
+系统流程高度简化为单一闭环：
+
+1.  **输入接收**：接收用户原始文本及上下文。
+2.  **代码生成 (Orchestration)**：LLM 强制输出包裹在 \`\`\`python ... \`\`\` 块中的代码。
+3.  **代码审查 (Guardrails)**：通过静态分析（AST）过滤高危库调用（如 `os.system`）。
+4.  **沙箱执行 (Execution)**：在隔离环境中运行代码。
+5.  **结果输出**：捕获 `stdout` 作为最终回复。
+    - 若执行报错：将 Traceback 喂回给 LLM 自动修复。
+    - 若执行成功：将代码存入缓存以便复用。
+
+---
+
+## 3. 核心模块设计
+
+### 3.1 统一编排器 (Unified Orchestrator)
+不再区分意图。通过高度约束的 **System Prompt** 驱动：
+- **强制指令**：你是一个 Python 逻辑单元。你的回答必须**仅**包含一个 Python 代码块。
+- **输出语义化**：
+    - *闲聊场景*：LLM 生成 `print("你好！有什么我能帮你的？")`。
+    - *逻辑场景*：LLM 生成复杂算法逻辑并 `print` 结果。
+    - *语义场景*：调用预置的语义函数 `ask_sub_agent()` 处理模糊信息。
+
+### 3.2 安全沙箱 (Sandbox Runtime)
+- **技术栈**：Docker 容器或 WASM (WebAssembly) 隔离。
+- **预置库**：`pandas`, `numpy`, `requests`, `datetime`, `re` 等常用库。
+- **注入接口 (Standard Library Plus)**：
+    - `ask_sub_agent(prompt)`: 当代码逻辑难以处理语义（如识别图片、分析情感）时调用。
+    - `memo_save(key, val)`: 手动存储关键中间变量。
+
+### 3.3 语义函数 (Sub-Agent as Function)
+当遇到“无法用公式/规则解决”的问题时，代码会通过 SDK 回调另一个轻量级 LLM：
+```python
+# 示例：LLM 生成的代码片段
+comments = ["太棒了", "物流太慢"]
+for c in comments:
+    is_neg = ask_sub_agent(f"判断是否为负面评价: {c}")
+    if "是" in is_neg:
+        print(f"检测到负面反馈: {c}")
+```
+
+### 3.4 缓存与进化层 (Code-Cache & Evolution)
+- **原理**：系统维护一个 `Code-Task` 数据库（Key 为任务特征的向量，Value 为代码）。
+- **流程**：
+    1.  检测当前任务是否与库中某个“成功特例”高度相似。
+    2.  命中缓存后，直接取出代码并在沙箱运行。
+    3.  若旧代码报错，触发“自愈流程”：LLM 根据报错信息修改旧代码，生成“新补丁”并更新数据库。
+
+---
+
+## 4. 关键架构组件图
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Backend as UPA Backend
+    participant LLM as Orchestrator (Logic)
+    participant Sandbox as Python Sandbox
+    participant Cache as Code Store
+
+    User->>Backend: 输入请求 (e.g., "帮我统计这些数据的方差")
+    Backend->>Cache: 匹配是否有类似任务代码?
+    
+    alt 缓存命中且有效
+        Cache-->>Backend: 返回缓存代码
+    else 缓存缺失或执行报错
+        Backend->>LLM: 生成/修复 Python 代码 (Always-Code Prompt)
+        LLM-->>Backend: 返回 ```python ... ```
+        Backend->>Cache: 保存/更新成功执行的代码
+    end
+
+    Backend->>Sandbox: 执行代码 (AST 审查 -> Exec)
+    Sandbox-->>Backend: 捕获 Stdout
+    Backend->>User: 显示最终结果 (隐藏代码，仅显 Stdout)
+```
+
+---
+
+## 5. 安全体系 (Guardrails)
+
+由于系统是“全量代码化”，安全性是其生死线：
+
+1.  **AST 静态白名单**：
+    - 拦截一切 `import os, subprocess, sys` 等涉及内核操作的库。
+    - 禁止使用 `__subclasses__`, `getattr` 等反射黑魔法绕过检查。
+2.  **资源配额 (Quotas)**：
+    - **CPU/GPU**: 限制单次代码运行周期。
+    - **Time**: 强制超时机制（10s 内强制 KILL）。
+    - **Network**: 仅允许访问预定义的 API 白名单。
+
+---
+
+## 6. 开发实施路线 (Implementation)
+
+### 第一阶段：MVP 实现
+- 开发 `Base Orcherstrator`，强制 LLM 输出 Python。
+- 实现本地沙箱，通过 `io.StringIO` 捕获 `print` 输出。
+- **测试标准**：问“你好”和问“1+1”都能通过 `print` 输出正确结果。
+
+### 第二阶段：语义集成
+- 注入 `ask_sub_agent` SDK。
+- 实现多级 LLM 调用：主模型写代码（复杂/昂贵），子模型在代码循环中处理语义（简单/便宜）。
+
+### 第三阶段：代码记忆体
+- 引入 Redis/Postgres 存储成功代码。
+- 实现“报错修复”逻辑：`try-except` 捕获沙箱错误 -> 发送给 LLM 修复 -> 运行新代码并替换缓存。
+
+---
+
+## 7. 总结：为什么要这么做？
+
+这种 **UPA (Unified Programmatic Agent)** 架构的核心优势在于：
+1.  **极度简化后端**：不需要复杂的 Prompt 分流逻辑，只有一条路走到底。
+2.  **不仅是对话**：这是一个能**自动编写并扩充自己功能**的软件。通过自愈代码，系统在应对边缘案例（Edge Cases）时会越来越稳固。
+3.  **可解释性**：所有 AI 的行为都记录在它生成的 Python 脚本中。如果 AI 错了，我们可以清晰地看到它的“逻辑公式”错在哪一行，而不是去猜它的“心路历程”。
