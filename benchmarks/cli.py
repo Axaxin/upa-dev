@@ -272,7 +272,7 @@ Examples:
     # Run the appropriate benchmark
     enable_llm_validation = not args.no_llm_validation
 
-    if args.suite in ("core", "classic"):
+    if args.suite in ("core", "classic", "mmlu"):
         filter_comp = Complexity(args.complexity) if args.complexity else None
         results = run_core_benchmark(
             cases=suite.cases,

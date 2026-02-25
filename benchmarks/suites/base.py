@@ -183,7 +183,7 @@ def get_registered_suites() -> dict[str, TestSuite]:
     """Get all registered test suites."""
     import benchmarks.suites as suites_module
     # Ensure all suite modules are imported
-    from benchmarks.suites import core_upa, semantic, classic
+    from benchmarks.suites import core_upa, semantic, classic, mmlu
     return getattr(suites_module, "_registered_suites", {})
 
 
