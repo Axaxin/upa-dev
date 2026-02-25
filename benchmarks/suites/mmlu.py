@@ -1026,6 +1026,370 @@ D. 胃
 
 
 # ============================================================================
+# Astronomy
+# ============================================================================
+
+MMLU_ASTRONOMY_SAMPLES: list[TestCase] = [
+    TestCase(
+        name="Astronomy: Solar System",
+        query="""问题：太阳系中最大的行星是？
+A. 地球
+B. 木星
+C. 土星
+D. 天王星
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.SIMPLE,
+        expect_contains="B",
+        description="Solar system planets"
+    ),
+
+    TestCase(
+        name="Astronomy: Moon Phases",
+        query="""问题：当月球位于地球和太阳之间时，我们看到的是什么月相？
+A. 满月
+B. 新月
+C. 上弦月
+D. 下弦月
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.MEDIUM,
+        expect_contains="B",
+        description="Lunar phases"
+    ),
+
+    TestCase(
+        name="Astronomy: Stars",
+        query="""问题：太阳属于哪类恒星？
+A. 红巨星
+B. 白矮星
+C. 主序星
+D. 中子星
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.MEDIUM,
+        expect_contains="C",
+        description="Stellar classification"
+    ),
+
+    TestCase(
+        name="Astronomy: Light Year",
+        query="""问题：光年是测量什么的单位？
+A. 时间
+B. 亮度
+C. 距离
+D. 速度
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.SIMPLE,
+        expect_contains="C",
+        description="Astronomical units"
+    ),
+]
+
+
+# ============================================================================
+# Law & Jurisprudence
+# ============================================================================
+
+MMLU_LAW_SAMPLES: list[TestCase] = [
+    TestCase(
+        name="Law: Contract",
+        query="""问题：合同成立的三个基本要素是什么？
+A. 要约、承诺、价格
+B. 要约、承诺、对价
+C. 要约、签字、见证
+D. 书面、签字、公证
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.MEDIUM,
+        expect_contains="B",
+        description="Contract law basics"
+    ),
+
+    TestCase(
+        name="Law: Constitution",
+        query="""问题：三权分立是指哪三种权力？
+A. 立法、行政、司法
+B. 立法、执法、监督
+C. 决策、执行、监督
+D. 立法、行政、监察
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.SIMPLE,
+        expect_contains="A",
+        description="Constitutional law"
+    ),
+
+    TestCase(
+        name="Law: Criminal",
+        query="""问题：刑法中，"无罪推定"原则意味着？
+A. 被告必须证明自己无罪
+B. 检方必须证明被告有罪
+C. 法官决定被告是否有罪
+D. 警察决定是否起诉
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.MEDIUM,
+        expect_contains="B",
+        description="Criminal law"
+    ),
+]
+
+
+# ============================================================================
+# Art & Music
+# ============================================================================
+
+MMLU_ART_SAMPLES: list[TestCase] = [
+    TestCase(
+        name="Art: Renaissance",
+        query="""问题：《蒙娜丽莎》的作者是谁？
+A. 米开朗基罗
+B. 拉斐尔
+C. 达芬奇
+D. 波提切利
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.SIMPLE,
+        expect_contains="C",
+        description="Renaissance art"
+    ),
+
+    TestCase(
+        name="Art: Music Theory",
+        query="""问题：一个八度包含多少个半音？
+A. 6个
+B. 8个
+C. 10个
+D. 12个
+
+请用 Python 代码验证并输出正确选项的字母。""",
+        complexity=Complexity.MEDIUM,
+        expect_contains="D",
+        description="Music theory"
+    ),
+
+    TestCase(
+        name="Art: Impressionism",
+        query="""问题：印象派绘画起源于哪个国家？
+A. 意大利
+B. 荷兰
+C. 法国
+D. 西班牙
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.SIMPLE,
+        expect_contains="C",
+        description="Art history"
+    ),
+]
+
+
+# ============================================================================
+# Advanced Mathematics
+# ============================================================================
+
+MMLU_ADV_MATH_SAMPLES: list[TestCase] = [
+    TestCase(
+        name="Math: Integral",
+        query="""问题：∫x²dx 等于多少？（C为常数）
+A. x³ + C
+B. x³/2 + C
+C. x³/3 + C
+D. 2x + C
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.COMPLEX,
+        expect_contains="C",
+        description="Basic integration"
+    ),
+
+    TestCase(
+        name="Math: Complex Numbers",
+        query="""问题：i² 等于多少？（i为虚数单位）
+A. 1
+B. -1
+C. i
+D. -i
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.MEDIUM,
+        expect_contains="B",
+        description="Complex numbers"
+    ),
+
+    TestCase(
+        name="Math: Trigonometry",
+        query="""问题：sin(30°) 等于多少？
+A. 0
+B. 0.5
+C. 0.866
+D. 1
+
+请用 Python 的 math 模块验证并输出正确选项的字母。""",
+        complexity=Complexity.MEDIUM,
+        expect_contains="B",
+        description="Trigonometric values"
+    ),
+
+    TestCase(
+        name="Math: Matrix",
+        query="""问题：2×2矩阵的行列式公式是什么？
+A. ad - bc
+B. ad + bc
+C. a + d
+D. a × d
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.COMPLEX,
+        expect_contains="A",
+        description="Linear algebra"
+    ),
+
+    TestCase(
+        name="Math: Probability",
+        query="""问题：同时掷两枚硬币，两枚都是正面的概率是多少？
+A. 1/4
+B. 1/3
+C. 1/2
+D. 2/3
+
+请用 Python 代码计算并输出正确选项的字母。""",
+        complexity=Complexity.MEDIUM,
+        expect_contains="A",
+        description="Probability calculation"
+    ),
+]
+
+
+# ============================================================================
+# Technology & Engineering
+# ============================================================================
+
+MMLU_TECH_SAMPLES: list[TestCase] = [
+    TestCase(
+        name="Tech: Binary",
+        query="""问题：二进制数 1111 等于十进制的多少？
+A. 7
+B. 14
+C. 15
+D. 16
+
+请用 Python 代码计算并输出正确选项的字母。""",
+        complexity=Complexity.MEDIUM,
+        expect_contains="C",
+        description="Binary conversion"
+    ),
+
+    TestCase(
+        name="Tech: CPU",
+        query="""问题：CPU的"时钟频率"通常以什么单位衡量？
+A. 字节
+B. 赫兹
+C. 瓦特
+D. 比特
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.SIMPLE,
+        expect_contains="B",
+        description="Computer hardware"
+    ),
+
+    TestCase(
+        name="Tech: Memory",
+        query="""问题：1GB 等于多少 MB？
+A. 100 MB
+B. 500 MB
+C. 1000 MB
+D. 1024 MB
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.SIMPLE,
+        expect_contains="D",
+        description="Memory units"
+    ),
+
+    TestCase(
+        name="Tech: Algorithm",
+        query="""问题：冒泡排序的最坏时间复杂度是？
+A. O(n)
+B. O(n log n)
+C. O(n²)
+D. O(log n)
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.MEDIUM,
+        expect_contains="C",
+        description="Algorithm complexity"
+    ),
+
+    TestCase(
+        name="Tech: Internet",
+        query="""问题：HTTPS 相比 HTTP 增加了什么？
+A. 速度
+B. 加密
+C. 压缩
+D. 缓存
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.SIMPLE,
+        expect_contains="B",
+        description="Web protocols"
+    ),
+]
+
+
+# ============================================================================
+# Linguistics & Language
+# ============================================================================
+
+MMLU_LINGUISTICS_SAMPLES: list[TestCase] = [
+    TestCase(
+        name="Linguistics: Parts of Speech",
+        query="""问题：在中文语法中，"很"属于什么词性？
+A. 名词
+B. 动词
+C. 形容词
+D. 副词
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.SIMPLE,
+        expect_contains="D",
+        description="Chinese grammar"
+    ),
+
+    TestCase(
+        name="Linguistics: Phonetics",
+        query="""问题：普通话有几个声调？
+A. 3个
+B. 4个
+C. 5个
+D. 6个
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.SIMPLE,
+        expect_contains="B",
+        description="Chinese phonetics"
+    ),
+
+    TestCase(
+        name="Linguistics: Syntax",
+        query="""问题："主语+谓语+宾语"是什么语言的基本语序？
+A. 日语
+B. 汉语
+C. 土耳其语
+D. 阿拉伯语
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.MEDIUM,
+        expect_contains="B",
+        description="Language typology"
+    ),
+]
+
+
+# ============================================================================
 # Optional: Load from HuggingFace Dataset
 # ============================================================================
 
@@ -1205,7 +1569,13 @@ MMLU_CASES = (
     MMLU_GEOGRAPHY_SAMPLES +
     MMLU_CS_SAMPLES +
     MMLU_MATH_SAMPLES +
-    MMLU_MEDICINE_SAMPLES
+    MMLU_MEDICINE_SAMPLES +
+    MMLU_ASTRONOMY_SAMPLES +
+    MMLU_LAW_SAMPLES +
+    MMLU_ART_SAMPLES +
+    MMLU_ADV_MATH_SAMPLES +
+    MMLU_TECH_SAMPLES +
+    MMLU_LINGUISTICS_SAMPLES
 )
 
 
