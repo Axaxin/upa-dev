@@ -54,6 +54,8 @@ upa-dev/
 ### ✅ Phase 3: Self-Healing (Complete)
 - [x] Auto-heal on execution errors (MAX_EXECUTION_RETRIES=3)
 - [x] Error feedback to LLM for automatic code repair
+- [x] Sub-agent self-healing (recursive error recovery)
+- [x] `@safe_sub_agent` decorator for simplified syntax
 
 ## Usage Examples
 
@@ -122,10 +124,19 @@ Current MVP includes:
 ## Architecture
 
 ```
-User Query → LLM (Always-Code Prompt) → Python Code → AST Check → Execute → stdout
-                                      ↓ (blocked)
-                                  Security Violation
+User Query → Main LLM → Python Code → AST Check → Execute → stdout
+                                      ↓ (error)
+                                 Self-Heal Loop
+                                      ↓ (semantic tasks)
+                              ask_sub_agent() → Sub LLM → Code → Execute → stdout
+                                                            ↓ (error)
+                                                       Sub Self-Heal Loop
 ```
+
+**Key Features**:
+- **Always-Code**: All outputs are executable Python code
+- **Recursive Self-Healing**: Both main and sub-agents auto-repair on errors
+- **Decorator Pattern**: `@safe_sub_agent("query")` simplifies semantic calls
 
 ## Benchmark Results
 
