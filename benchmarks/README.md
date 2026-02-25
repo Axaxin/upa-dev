@@ -161,6 +161,18 @@ HybridTest(
 - **复杂度分级**: 简单、中等、复杂、边缘案例
 - **测试类型**: 数学运算、字符串处理、数据结构、算法等
 
+### classic (经典基准测试)
+
+来自经典 LLM benchmark 的测试问题。
+
+- **测试数量**: 23
+- **来源**: GSM8K、HumanEval、MATH
+- **测试类型**:
+  - **GSM8K**: 小学数学应用题（多步推理）
+  - **HumanEval**: Python 代码生成
+  - **MATH**: 高级数学问题
+  - **边缘案例**: 异常处理、边界条件
+
 ### semantic (语义混合)
 
 测试语义理解 (sub-agent) 与逻辑处理的混合任务。
@@ -171,6 +183,15 @@ HybridTest(
 ## 示例
 
 ```bash
+# 运行核心测试集
+uv run python -m benchmarks core
+
+# 运行经典基准测试 (GSM8K, HumanEval, MATH)
+uv run python -m benchmarks classic
+
+# 运行语义混合测试集
+uv run python -m benchmarks semantic
+
 # 运行简单复杂度的测试
 uv run python -m benchmarks core -c 简单
 
