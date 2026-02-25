@@ -303,6 +303,30 @@ D. 4 个
 # Optional: Load from HuggingFace Dataset
 # ============================================================================
 
+# Available MMLU subjects for reference
+MMLU_SUBJECTS = [
+    'abstract_algebra', 'anatomy', 'astronomy', 'business_ethics',
+    'clinical_knowledge', 'college_biology', 'college_chemistry',
+    'college_computer_science', 'college_mathematics', 'college_medicine',
+    'college_physics', 'computer_security', 'conceptual_physics',
+    'econometrics', 'electrical_engineering', 'elementary_mathematics',
+    'formal_logic', 'global_facts', 'high_school_biology',
+    'high_school_chemistry', 'high_school_computer_science',
+    'high_school_european_history', 'high_school_geography',
+    'high_school_government_and_politics', 'high_school_macroeconomics',
+    'high_school_mathematics', 'high_school_microeconomics',
+    'high_school_physics', 'high_school_psychology', 'high_school_statistics',
+    'high_school_us_history', 'high_school_world_history', 'human_aging',
+    'human_sexuality', 'international_law', 'jurisprudence',
+    'logical_fallacies', 'machine_learning', 'management', 'marketing',
+    'medical_genetics', 'miscellaneous', 'moral_disputes',
+    'moral_scenarios', 'nutrition', 'philosophy', 'prehistory',
+    'professional_accounting', 'professional_law', 'professional_medicine',
+    'professional_psychology', 'public_relations', 'security_studies',
+    'sociology', 'us_foreign_policy', 'virology', 'world_religions'
+]
+
+
 def load_mmlu_from_huggingface(
     subjects: list[str] | None = None,
     split: str = "test",
@@ -311,14 +335,35 @@ def load_mmlu_from_huggingface(
     """Load MMLU questions from HuggingFace dataset.
 
     Args:
-        subjects: List of subject names (e.g., ['mathematics', 'physics'])
-                 If None, loads all available subjects
-        split: Dataset split ('test', 'val', 'dev')
+        subjects: List of MMLU subject names (e.g., ['elementary_mathematics', 'college_physics'])
+                 See MMLU_SUBJECTS for available options. If None, loads 'all'.
+        split: Dataset split ('test', 'validation', 'dev')
         limit: Maximum number of questions per subject
 
     Returns:
         List of TestCase objects
+
+    Examples:
+        # Load 50 elementary math questions
+        cases = load_mmlu_from_huggingface(subjects=['elementary_mathematics'], limit=50)
+
+        # Load from multiple subjects
+        cases = load_mmlu_from_huggingface(subjects=['high_school_mathematics', 'college_physics'])
+
+        # Load all subjects (not recommended - too large)
+        cases = load_mmlu_from_huggingface(subjects=['all'])
     """
+    import os
+    # Use mirror for faster access in China
+    os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
+
+    # Use HF Token for faster downloads (set via environment variable)
+    # export HF_TOKEN=your_token_here
+    # or set in .env file
+    hf_token = os.environ.get('HF_TOKEN')
+    if hf_token:
+        os.environ['HF_TOKEN'] = hf_token
+
     try:
         from datasets import load_dataset
     except ImportError:
@@ -326,33 +371,28 @@ def load_mmlu_from_huggingface(
         return []
 
     try:
-        if subjects:
-            dataset = load_dataset("cais/mmlu", subjects)
-        else:
-            dataset = load_dataset("cais/mmlu", "all")
-
         cases = []
-        data = dataset[split]
 
-        for i, item in enumerate(data):
-            if limit and i >= limit:
-                break
+        # Load each subject separately
+        if subjects:
+            for subject_name in subjects:
+                dataset = load_dataset("cais/mmlu", subject_name)
+                data = dataset[split]
 
-            # Format question with choices
-            question = item['question']
-            choices = item['choices'] if isinstance(item['choices'], list) else [
-                item.get('choice_a', ''),
-                item.get('choice_b', ''),
-                item.get('choice_c', ''),
-                item.get('choice_d', ''),
-            ]
+                for i, item in enumerate(data):
+                    if limit and i >= limit:
+                        break
 
-            # Map answer index to letter
-            answer_idx = item['answer'] if isinstance(item['answer'], int) else 0
-            answer_letter = chr(ord('A') + answer_idx)
+                    # Format question with choices
+                    question = item['question']
+                    choices = item['choices']
 
-            # Build query
-            query = f"""问题：{question}
+                    # Map answer index to letter
+                    answer_idx = item['answer'] if isinstance(item['answer'], int) else 0
+                    answer_letter = chr(ord('A') + answer_idx)
+
+                    # Build query
+                    query = f"""问题：{question}
 A. {choices[0]}
 B. {choices[1]}
 C. {choices[2]}
@@ -360,21 +400,57 @@ D. {choices[3]}
 
 请用 Python 代码推理并输出正确选项的字母（A/B/C/D）。"""
 
-            # Determine complexity based on question length
-            if len(question) < 100:
-                complexity = Complexity.SIMPLE
-            elif len(question) < 200:
-                complexity = Complexity.MEDIUM
-            else:
-                complexity = Complexity.COMPLEX
+                    # Determine complexity based on question length
+                    if len(question) < 100:
+                        complexity = Complexity.SIMPLE
+                    elif len(question) < 200:
+                        complexity = Complexity.MEDIUM
+                    else:
+                        complexity = Complexity.COMPLEX
 
-            cases.append(TestCase(
-                name=f"MMLU_{item.get('subject', 'general')}_{i}",
-                query=query,
-                complexity=complexity,
-                expect_contains=answer_letter,
-                description=f"Subject: {item.get('subject', 'general')}"
-            ))
+                    cases.append(TestCase(
+                        name=f"MMLU_{subject_name}_{i}",
+                        query=query,
+                        complexity=complexity,
+                        expect_contains=answer_letter,
+                        description=f"Subject: {subject_name}"
+                    ))
+        else:
+            # Load 'all' config (loads everything - use with caution)
+            dataset = load_dataset("cais/mmlu", "all")
+            data = dataset[split]
+
+            for i, item in enumerate(data):
+                if limit and i >= limit:
+                    break
+
+                question = item['question']
+                choices = item['choices']
+                answer_idx = item['answer'] if isinstance(item['answer'], int) else 0
+                answer_letter = chr(ord('A') + answer_idx)
+
+                query = f"""问题：{question}
+A. {choices[0]}
+B. {choices[1]}
+C. {choices[2]}
+D. {choices[3]}
+
+请用 Python 代码推理并输出正确选项的字母（A/B/C/D）。"""
+
+                if len(question) < 100:
+                    complexity = Complexity.SIMPLE
+                elif len(question) < 200:
+                    complexity = Complexity.MEDIUM
+                else:
+                    complexity = Complexity.COMPLEX
+
+                cases.append(TestCase(
+                    name=f"MMLU_all_{i}",
+                    query=query,
+                    complexity=complexity,
+                    expect_contains=answer_letter,
+                    description="Subject: all"
+                ))
 
         return cases
 
