@@ -31,8 +31,15 @@ uv run python upa.py --show-code "帮我排序: 3,1,4,1,5"
 ```
 upa-dev/
 ├── upa.py              # Main CLI implementation (MVP)
-├── benchmark_upa.py    # Performance benchmark suite
-├── test_upa.py         # Functional test suite
+├── benchmarks/         # Unified benchmark framework
+│   ├── cli.py          # Benchmark CLI entry point
+│   ├── runner.py       # Core execution engine
+│   ├── display.py      # Terminal display utilities
+│   └── suites/         # Test suite definitions
+│       ├── core_upa.py # Core UPA functionality tests
+│       └── semantic.py # Semantic-Logic hybrid tests
+├── benchmark_upa.py    # Legacy: Performance benchmark (deprecated)
+├── benchmark_semantic.py # Legacy: Semantic benchmark (deprecated)
 ├── DESIGN.md           # Architecture design document
 ├── CLAUDE.md           # Project guidance for Claude Code
 └── .env                # API configuration (DashScope)
@@ -89,19 +96,29 @@ uv run python upa.py --timing "计算 100 的阶乘"
 ## Testing
 
 ```bash
-# Run functional tests
-uv run python test_upa.py
+# List all available test suites
+uv run python -m benchmarks --list-suites
 
-# Run performance benchmarks
-uv run python benchmark_upa.py
+# Run core UPA benchmarks
+uv run python -m benchmarks core
 
-# Run specific complexity
-uv run python benchmark_upa.py -c 中等
-uv run python benchmark_upa.py -c 复杂
-uv run python benchmark_upa.py -c 边缘案例
+# Run semantic-logic hybrid benchmarks
+uv run python -m benchmarks semantic
 
-# Export benchmark results
-uv run python benchmark_upa.py -j results.json
+# Filter by complexity (core suite)
+uv run python -m benchmarks core -c 中等
+
+# Filter by task type (semantic suite)
+uv run python -m benchmarks semantic -t "翻译+逻辑"
+
+# Limit test count
+uv run python -m benchmarks core -n 10
+
+# Export results to JSON
+uv run python -m benchmarks core -j results.json
+
+# List test cases in a suite
+uv run python -m benchmarks core --list
 ```
 
 ## Configuration
