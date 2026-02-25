@@ -119,6 +119,10 @@ uv run python -m benchmarks core -j results.json
 
 # List test cases in a suite
 uv run python -m benchmarks core --list
+
+# Save detailed execution logs (for failed test analysis)
+uv run python -m benchmarks core --save-details core-details.json
+uv run python -m benchmarks semantic --save-details semantic-details.json
 ```
 
 ## Configuration

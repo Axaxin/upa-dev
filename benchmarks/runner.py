@@ -13,17 +13,30 @@ import threading
 from typing import Any
 
 from benchmarks.suites.base import (
-    TestCase, HybridTest, BenchmarkResult, HybridResult,
+    TestCase, HybridTest, BenchmarkResult, HybridResult, TestDetails,
     QualityMetric, Complexity, TaskType
 )
 from benchmarks.display import StreamingDisplay, Colors, format_bar, format_time
 
 
-def run_upa_test(test: TestCase) -> tuple[TestCase, BenchmarkResult, dict[QualityMetric, bool]]:
+def extract_code_from_stderr(stderr: str) -> str:
+    """Extract generated Python code from stderr output."""
+    # Look for code block in stderr (UPA outputs it during execution)
+    pattern = r"```python\s*\n(.*?)\n```"
+    match = re.search(pattern, stderr, re.DOTALL)
+    if match:
+        return match.group(1).strip()
+    return ""
+
+
+def run_upa_test(test: TestCase) -> tuple[TestCase, BenchmarkResult, dict[QualityMetric, bool], TestDetails]:
     """Run a single core UPA test."""
     cmd = ["uv", "run", "python", "upa.py", "--timing", test.query]
 
     start_time = time.perf_counter()
+    from datetime import datetime
+    timestamp = datetime.now().isoformat()
+
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
         total_time = (time.perf_counter() - start_time) * 1000
@@ -36,13 +49,14 @@ def run_upa_test(test: TestCase) -> tuple[TestCase, BenchmarkResult, dict[Qualit
         timing["total"] = total_time
 
         code_extracted = "Thinking..." in stderr
+        generated_code = extract_code_from_stderr(stderr)
         violations = re.findall(r"- (Blocked .+)", stderr) if "Security violations" in stderr else []
 
         exec_error = ""
         if "Execution Error:" in stderr:
             match = re.search(r"Execution Error:\n(.+)", stderr, re.DOTALL)
             if match:
-                exec_error = match.group(1).strip()[:100]
+                exec_error = match.group(1).strip()
 
         benchmark_result = BenchmarkResult(
             query=test.query,
@@ -50,15 +64,37 @@ def run_upa_test(test: TestCase) -> tuple[TestCase, BenchmarkResult, dict[Qualit
             output=stdout,
             timing=timing,
             code_extracted=code_extracted,
+            code_content=generated_code,
+            security_violations=violations,
+            execution_error=exec_error[:500] if exec_error else "",
+        )
+
+        # Create detailed record
+        details = TestDetails(
+            suite_name="core",
+            test_name=test.name,
+            query=test.query,
+            complexity=test.complexity.value,
+            generated_code=generated_code,
+            code_block_found=code_extracted,
+            stdout=stdout,
+            stderr=stderr,
+            return_code=result.returncode,
+            success=result.returncode == 0,
             security_violations=violations,
             execution_error=exec_error,
+            timing_ms=timing,
+            expected_contains=test.expect_contains,
+            expected_pattern=test.expect_pattern,
+            expected_numeric=test.expected_numeric,
+            timestamp=timestamp,
         )
 
         metrics = _evaluate_quality(test, benchmark_result)
-        return test, benchmark_result, metrics
+        return test, benchmark_result, metrics, details
 
     except subprocess.TimeoutExpired:
-        result = BenchmarkResult(
+        benchmark_result = BenchmarkResult(
             query=test.query,
             success=False,
             output="",
@@ -66,10 +102,20 @@ def run_upa_test(test: TestCase) -> tuple[TestCase, BenchmarkResult, dict[Qualit
             code_extracted=False,
             execution_error="Timeout"
         )
-        return test, result, {}
+        details = TestDetails(
+            suite_name="core",
+            test_name=test.name,
+            query=test.query,
+            complexity=test.complexity.value,
+            return_code=-1,
+            success=False,
+            execution_error="Timeout",
+            timestamp=timestamp,
+        )
+        return test, benchmark_result, {}, details
 
     except Exception as e:
-        result = BenchmarkResult(
+        benchmark_result = BenchmarkResult(
             query=test.query,
             success=False,
             output="",
@@ -77,14 +123,26 @@ def run_upa_test(test: TestCase) -> tuple[TestCase, BenchmarkResult, dict[Qualit
             code_extracted=False,
             execution_error=str(e)
         )
-        return test, result, {}
+        details = TestDetails(
+            suite_name="core",
+            test_name=test.name,
+            query=test.query,
+            complexity=test.complexity.value,
+            return_code=-1,
+            success=False,
+            execution_error=str(e),
+            timestamp=timestamp,
+        )
+        return test, benchmark_result, {}, details
 
 
-def run_hybrid_test(test: HybridTest) -> HybridResult:
+def run_hybrid_test(test: HybridTest) -> tuple[HybridResult, TestDetails]:
     """Run a single semantic-logic hybrid test."""
     cmd = ["uv", "run", "python", "upa.py", "--timing", test.query]
 
     start_time = time.perf_counter()
+    from datetime import datetime
+    timestamp = datetime.now().isoformat()
 
     try:
         result = subprocess.run(
@@ -99,8 +157,12 @@ def run_hybrid_test(test: HybridTest) -> HybridResult:
         output = result.stdout
         stderr = result.stderr
 
-        # Count sub-agent calls
+        # Count sub-agent calls and depths
         sub_calls = len(re.findall(r"Sub-Agent Call \(L(\d+)\)", stderr))
+        sub_depths = [int(d) for d in re.findall(r"Sub-Agent Call \(L(\d+)\)", stderr)]
+
+        # Extract generated code
+        generated_code = extract_code_from_stderr(stderr)
 
         # Evaluate result
         success = result.returncode == 0
@@ -118,7 +180,11 @@ def run_hybrid_test(test: HybridTest) -> HybridResult:
                 except ValueError:
                     success = False
 
-        return HybridResult(
+        # Parse timing
+        timing = _parse_timing_report(stderr)
+        timing["total"] = duration
+
+        hybrid_result = HybridResult(
             test=test,
             success=success,
             output=output,
@@ -127,8 +193,30 @@ def run_hybrid_test(test: HybridTest) -> HybridResult:
             execution_error=stderr if result.returncode != 0 else ""
         )
 
+        details = TestDetails(
+            suite_name="semantic",
+            test_name=test.name,
+            query=test.query,
+            task_type=test.task_type.value,
+            generated_code=generated_code,
+            code_block_found=bool(generated_code),
+            stdout=output,
+            stderr=stderr,
+            return_code=result.returncode,
+            success=success,
+            timing_ms=timing,
+            sub_agent_calls=sub_calls,
+            sub_agent_depths=sub_depths,
+            expected_contains=test.expected_contains,
+            expected_pattern=test.expected_pattern,
+            expected_numeric=test.expected_numeric,
+            timestamp=timestamp,
+        )
+
+        return hybrid_result, details
+
     except subprocess.TimeoutExpired:
-        return HybridResult(
+        hybrid_result = HybridResult(
             test=test,
             success=False,
             output="",
@@ -136,9 +224,21 @@ def run_hybrid_test(test: HybridTest) -> HybridResult:
             sub_agent_calls=0,
             execution_error="Timeout"
         )
+        details = TestDetails(
+            suite_name="semantic",
+            test_name=test.name,
+            query=test.query,
+            task_type=test.task_type.value,
+            return_code=-1,
+            success=False,
+            execution_error="Timeout",
+            timestamp=timestamp,
+        )
+        return hybrid_result, details
+
     except Exception as e:
         duration = (time.perf_counter() - start_time) * 1000
-        return HybridResult(
+        hybrid_result = HybridResult(
             test=test,
             success=False,
             output="",
@@ -146,6 +246,17 @@ def run_hybrid_test(test: HybridTest) -> HybridResult:
             sub_agent_calls=0,
             execution_error=str(e)
         )
+        details = TestDetails(
+            suite_name="semantic",
+            test_name=test.name,
+            query=test.query,
+            task_type=test.task_type.value,
+            return_code=-1,
+            success=False,
+            execution_error=str(e),
+            timestamp=timestamp,
+        )
+        return hybrid_result, details
 
 
 def run_core_benchmark(
@@ -153,7 +264,7 @@ def run_core_benchmark(
     filter_complexity: Complexity | None = None,
     limit: int | None = None,
     workers: int = 4
-) -> list[tuple[TestCase, BenchmarkResult, dict[QualityMetric, bool]]]:
+) -> list[tuple[TestCase, BenchmarkResult, dict[QualityMetric, bool], TestDetails]]:
     """Run core UPA benchmark suite."""
     from benchmarks.suites.core_upa import CORE_CASES
 
@@ -179,7 +290,7 @@ def run_core_benchmark(
             completed_count[0] += 1
 
         # Print progress
-        _, _, metrics = test_result
+        _, _, metrics, _ = test_result
         with results_lock:
             progress = completed_count[0] / len(tests)
             bar_len = 30
@@ -219,14 +330,14 @@ def run_core_benchmark(
             except Exception as e:
                 idx, test = futures[future]
                 with results_lock:
-                    results.append((idx, (test, None, {})))
+                    results.append((idx, (test, None, {}, None)))
 
     total_suite_time = (time.perf_counter() - start_time) * 1000
 
     print(f"\n\n{Colors.BOLD}🏁 Suite completed in {total_suite_time:.0f}ms{Colors.ENDC}")
 
     results.sort(key=lambda x: x[0])
-    return [(t, r, m) for _, (t, r, m) in results]
+    return [(t, r, m, d) for _, (t, r, m, d) in results]
 
 
 def run_hybrid_benchmark(
@@ -234,7 +345,7 @@ def run_hybrid_benchmark(
     filter_type: TaskType | None = None,
     limit: int | None = None,
     workers: int = 4
-) -> list[HybridResult]:
+) -> list[tuple[HybridResult, TestDetails]]:
     """Run semantic-logic hybrid benchmark suite."""
     from benchmarks.suites.semantic import HYBRID_CASES
 
@@ -255,19 +366,19 @@ def run_hybrid_benchmark(
 
     def worker_task(idx: int, test: HybridTest):
         """Worker function to run a single test."""
-        result = run_hybrid_test(test)
+        hybrid_result, details = run_hybrid_test(test)
 
         with progress_lock:
             completed_count[0] += 1
             display.print_task_start(completed_count[0], len(tests), test.name, test.task_type.value, test.query)
-            display.print_task_result(result.success, result.duration, result.output)
-            if result.sub_agent_calls > 0:
-                print(f"    {Colors.OKCYAN}📊 Sub-agent calls: {result.sub_agent_calls}{Colors.ENDC}")
+            display.print_task_result(hybrid_result.success, hybrid_result.duration, hybrid_result.output)
+            if hybrid_result.sub_agent_calls > 0:
+                print(f"    {Colors.OKCYAN}📊 Sub-agent calls: {hybrid_result.sub_agent_calls}{Colors.ENDC}")
 
         with results_lock:
-            results.append((idx, result))
+            results.append((idx, (hybrid_result, details)))
 
-        return result
+        return hybrid_result, details
 
     start_time = time.perf_counter()
 
@@ -281,22 +392,34 @@ def run_hybrid_benchmark(
             try:
                 future.result()
             except Exception as e:
+                from datetime import datetime
                 idx, test = futures[future]
+                error_result = HybridResult(
+                    test=test,
+                    success=False,
+                    output="",
+                    duration=0,
+                    execution_error=str(e)
+                )
+                error_details = TestDetails(
+                    suite_name="semantic",
+                    test_name=test.name,
+                    query=test.query,
+                    task_type=test.task_type.value,
+                    return_code=-1,
+                    success=False,
+                    execution_error=str(e),
+                    timestamp=datetime.now().isoformat(),
+                )
                 with results_lock:
-                    results.append((idx, HybridResult(
-                        test=test,
-                        success=False,
-                        output="",
-                        duration=0,
-                        execution_error=str(e)
-                    )))
+                    results.append((idx, (error_result, error_details)))
 
     total_duration = (time.perf_counter() - start_time) * 1000
 
     print(f"\n{Colors.BOLD}⏱️  Suite completed in {total_duration:.0f}ms{Colors.ENDC}")
 
     results.sort(key=lambda x: x[0])
-    return [r for _, r in results]
+    return [(hr, td) for _, (hr, td) in results]
 
 
 def _parse_timing_report(stderr: str) -> dict[str, float]:

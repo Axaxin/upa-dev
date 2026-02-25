@@ -71,6 +71,74 @@ class BenchmarkResult:
 
 
 @dataclass
+class TestDetails:
+    """Detailed execution record for a single test, for analysis and debugging."""
+
+    # Test metadata
+    suite_name: str
+    test_name: str
+    query: str
+
+    # Test classification
+    complexity: str | None = None  # For core tests
+    task_type: str | None = None  # For hybrid tests
+
+    # Generated code (extracted from stderr)
+    generated_code: str = ""
+    code_block_found: bool = False
+
+    # Full execution output
+    stdout: str = ""
+    stderr: str = ""
+    return_code: int = 0
+
+    # Analysis results
+    success: bool = False
+    security_violations: list[str] = field(default_factory=list)
+    execution_error: str = ""
+
+    # Timing breakdown
+    timing_ms: dict[str, float] = field(default_factory=dict)
+
+    # Sub-agent info (hybrid tests)
+    sub_agent_calls: int = 0
+    sub_agent_depths: list[int] = field(default_factory=list)
+
+    # Test expectations (for validation)
+    expected_contains: str | None = None
+    expected_pattern: str | None = None
+    expected_numeric: tuple[float, float] | None = None
+
+    # Timestamp
+    timestamp: str = ""
+
+    def to_dict(self) -> dict:
+        """Convert to JSON-serializable dict."""
+        return {
+            "suite_name": self.suite_name,
+            "test_name": self.test_name,
+            "query": self.query,
+            "complexity": self.complexity,
+            "task_type": self.task_type,
+            "generated_code": self.generated_code,
+            "code_block_found": self.code_block_found,
+            "stdout": self.stdout,
+            "stderr": self.stderr,
+            "return_code": self.return_code,
+            "success": self.success,
+            "security_violations": self.security_violations,
+            "execution_error": self.execution_error,
+            "timing_ms": self.timing_ms,
+            "sub_agent_calls": self.sub_agent_calls,
+            "sub_agent_depths": self.sub_agent_depths,
+            "expected_contains": self.expected_contains,
+            "expected_pattern": self.expected_pattern,
+            "expected_numeric": self.expected_numeric,
+            "timestamp": self.timestamp,
+        }
+
+
+@dataclass
 class HybridResult:
     """Result of a hybrid test."""
     test: HybridTest

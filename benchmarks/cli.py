@@ -12,25 +12,25 @@ from typing import Any
 
 from benchmarks.suites.base import (
     Complexity, TaskType, QualityMetric,
-    TestCase, HybridTest, BenchmarkResult, HybridResult,
+    TestCase, HybridTest, BenchmarkResult, HybridResult, TestDetails,
     get_registered_suites, get_suite
 )
 from benchmarks.runner import run_core_benchmark, run_hybrid_benchmark
 from benchmarks.display import Colors, format_bar, format_time, StreamingDisplay
 
 
-def print_report_core(results: list[tuple[TestCase, BenchmarkResult, dict[QualityMetric, bool]]]):
+def print_report_core(results: list[tuple[TestCase, BenchmarkResult, dict[QualityMetric, bool], TestDetails]]):
     """Print core UPA benchmark report."""
     print(f"\n{Colors.BOLD}{Colors.HEADER}{'═' * 70}{Colors.ENDC}")
     print(f"{Colors.BOLD}{Colors.HEADER}  UPA Core Benchmark Report{'':>48}{Colors.ENDC}")
     print(f"{Colors.BOLD}{Colors.HEADER}{'═' * 70}{Colors.ENDC}")
 
     total = len(results)
-    passed = sum(1 for _, _, m in results if m.get(QualityMetric.CORRECT_RESULT))
-    code_ok = sum(1 for _, _, m in results if m.get(QualityMetric.CODE_OUTPUT))
-    exec_ok = sum(1 for _, _, m in results if m.get(QualityMetric.EXECUTION_OK))
+    passed = sum(1 for _, _, m, _ in results if m.get(QualityMetric.CORRECT_RESULT))
+    code_ok = sum(1 for _, _, m, _ in results if m.get(QualityMetric.CODE_OUTPUT))
+    exec_ok = sum(1 for _, _, m, _ in results if m.get(QualityMetric.EXECUTION_OK))
 
-    llm_times = [r.timing.get("LLM Generate", 0) for _, r, _ in results if r.timing]
+    llm_times = [r.timing.get("LLM Generate", 0) for _, r, _, _ in results if r.timing]
 
     # Overall Statistics
     print(f"\n  {Colors.BOLD}📊 Overall Statistics{Colors.ENDC}")
@@ -57,7 +57,7 @@ def print_report_core(results: list[tuple[TestCase, BenchmarkResult, dict[Qualit
     # By Complexity
     print(f"\n  {Colors.BOLD}📈 Results by Complexity{Colors.ENDC}")
     by_comp: dict[Complexity, list] = {c: [] for c in Complexity}
-    for test, result, metrics in results:
+    for test, result, metrics, _ in results:
         by_comp[test.complexity].append((test, result, metrics))
 
     for comp in Complexity:
@@ -76,7 +76,7 @@ def print_report_core(results: list[tuple[TestCase, BenchmarkResult, dict[Qualit
     # Quality Metrics
     print(f"\n  {Colors.BOLD}🎯 Quality Metrics{Colors.ENDC}")
     for metric in QualityMetric:
-        p = sum(1 for _, _, m in results if m.get(metric))
+        p = sum(1 for _, _, m, _ in results if m.get(metric))
         pct = (p / total * 100) if total > 0 else 0
         bar_color = Colors.OKGREEN if p == total else (Colors.WARNING if p >= total * 0.8 else Colors.FAIL)
         bar = format_bar(p, total, 20, bar_color)
@@ -87,7 +87,7 @@ def print_report_core(results: list[tuple[TestCase, BenchmarkResult, dict[Qualit
     print(f"  {'Test':<18} {'Complexity':<10} {'Time':>10} {'Status':<8} {'Quality'}")
     print(f"{'─' * 70}")
 
-    for test, result, metrics in results:
+    for test, result, metrics, _ in results:
         time_str = format_time(result.timing.get('total', 0))
         if metrics.get(QualityMetric.CORRECT_RESULT):
             status = f"{Colors.OKGREEN}✅ PASS{Colors.ENDC}"
@@ -167,6 +167,9 @@ Examples:
   # Export results to JSON
   python -m benchmarks core -j results.json
 
+  # Save detailed execution logs (for failed test analysis)
+  python -m benchmarks core --save-details core-details.json
+
   # List available suites
   python -m benchmarks --list-suites
         """
@@ -213,6 +216,12 @@ Examples:
         default=4,
         help="Number of parallel workers (default: 4)"
     )
+    parser.add_argument(
+        "--save-details",
+        type=str,
+        metavar="FILE",
+        help="Save detailed execution logs to JSON file (includes code, stderr, etc.)"
+    )
 
     args = parser.parse_args()
 
@@ -248,6 +257,13 @@ Examples:
         )
         print_report_core(results)
 
+        # Export detailed logs if requested
+        if args.save_details:
+            details_data = [details.to_dict() for _, _, _, details in results]
+            with open(args.save_details, "w", encoding="utf-8") as f:
+                json.dump(details_data, f, ensure_ascii=False, indent=2)
+            print(f"{Colors.OKGREEN}✓ Saved details to {args.save_details}{Colors.ENDC}")
+
         if args.json:
             data = [{
                 "test": t.name,
@@ -256,7 +272,7 @@ Examples:
                 "success": r.success,
                 "timing": r.timing,
                 "quality": {m.value: v for m, v in m.items()}
-            } for t, r, m in results]
+            } for t, r, m, _ in results]
             with open(args.json, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
             print(f"{Colors.OKGREEN}✓ Exported to {args.json}{Colors.ENDC}")
@@ -278,23 +294,30 @@ Examples:
 
         display = StreamingDisplay()
         display.print_summary([{
-            "name": r.test.name,
-            "success": r.success,
-            "duration": r.duration,
-            "task_type": r.test.task_type,
-            "sub_agent_calls": r.sub_agent_calls,
-        } for r in results])
+            "name": hr.test.name,
+            "success": hr.success,
+            "duration": hr.duration,
+            "task_type": hr.test.task_type,
+            "sub_agent_calls": hr.sub_agent_calls,
+        } for hr, _ in results])
+
+        # Export detailed logs if requested
+        if args.save_details:
+            details_data = [details.to_dict() for _, details in results]
+            with open(args.save_details, "w", encoding="utf-8") as f:
+                json.dump(details_data, f, ensure_ascii=False, indent=2)
+            print(f"{Colors.OKGREEN}✓ Saved details to {args.save_details}{Colors.ENDC}")
 
         if args.json:
             data = [{
-                "name": r.test.name,
-                "query": r.test.query,
-                "task_type": r.test.task_type.value,
-                "success": r.success,
-                "duration_ms": r.duration,
-                "sub_agent_calls": r.sub_agent_calls,
-                "output": r.output[:200],
-            } for r in results]
+                "name": hr.test.name,
+                "query": hr.test.query,
+                "task_type": hr.test.task_type.value,
+                "success": hr.success,
+                "duration_ms": hr.duration,
+                "sub_agent_calls": hr.sub_agent_calls,
+                "output": hr.output[:200],
+            } for hr, _ in results]
             with open(args.json, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
             print(f"{Colors.OKGREEN}✓ Exported to {args.json}{Colors.ENDC}")

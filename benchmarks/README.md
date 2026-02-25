@@ -50,7 +50,8 @@ options:
   -n, --limit N         限制测试数量
   -l, --list            列出测试集内的测试用例
   --list-suites         列出所有可用测试集
-  -j, --json FILE       导出结果到 JSON
+  -j, --json FILE       导出结果摘要到 JSON
+  --save-details FILE   保存详细执行日志到 JSON（包含代码、stderr 等）
   -w, --workers N       并发 worker 数量 (默认: 4)
 ```
 
@@ -181,4 +182,54 @@ uv run python -m benchmarks core -n 5 -j results.json
 
 # 使用 8 个并发 worker
 uv run python -m benchmarks core -w 8
+
+# 保存详细执行日志（用于失败分析）
+uv run python -m benchmarks core --save-details details.json
+uv run python -m benchmarks semantic --save-details semantic-details.json
 ```
+
+## 详细日志 (`--save-details`)
+
+使用 `--save-details` 参数可以保存每个测试的完整执行状态，便于分析失败原因：
+
+### 保存的信息
+
+- **测试元数据**: 名称、查询、类型（复杂度/任务类型）
+- **生成的代码**: 完整的 Python 代码（从 stderr 提取）
+- **执行输出**: stdout 和 stderr 的完整内容
+- **错误详情**: 安全违规列表、执行错误信息
+- **计时数据**: 各阶段耗时（LLM 生成、代码提取、安全检查、执行）
+- **Sub-agent 信息**: 调用次数和深度层级（semantic 测试）
+
+### 日志文件结构
+
+```json
+[
+  {
+    "suite_name": "core",
+    "test_name": "加法运算",
+    "query": "1 + 1 等于几",
+    "complexity": "简单",
+    "generated_code": "print(1 + 1)",
+    "code_block_found": true,
+    "stdout": "2",
+    "stderr": "...",
+    "return_code": 0,
+    "success": true,
+    "security_violations": [],
+    "execution_error": "",
+    "timing_ms": {
+      "LLM Generate": 1234.5,
+      "Code Extract": 0.1,
+      "Security Check": 0.2,
+      "Code Execute": 0.1,
+      "total": 1235.0
+    },
+    "timestamp": "2024-02-26T10:30:45.123456"
+  }
+]
+```
+
+### 使用场景
+
+当测试失败时，可以查看 `details.json` 中的 `generated_code` 和 `execution_error` 字段，无需重新运行测试即可分析问题原因。
