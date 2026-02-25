@@ -247,7 +247,7 @@ Examples:
         return
 
     # Run the appropriate benchmark
-    if args.suite == "core":
+    if args.suite in ("core", "classic"):
         filter_comp = Complexity(args.complexity) if args.complexity else None
         results = run_core_benchmark(
             cases=suite.cases,

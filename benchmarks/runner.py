@@ -86,7 +86,7 @@ def run_upa_test(test: TestCase) -> tuple[TestCase, BenchmarkResult, dict[Qualit
             timing_ms=timing,
             expected_contains=test.expect_contains,
             expected_pattern=test.expect_pattern,
-            expected_numeric=test.expected_numeric,
+            expected_numeric=test.expect_numeric,
             timestamp=timestamp,
         )
 
