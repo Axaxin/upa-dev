@@ -155,7 +155,7 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Run all tests in core suite
+  # Run all tests in core suite (details saved automatically)
   python -m benchmarks core
 
   # Run semantic suite with 8 workers
@@ -167,8 +167,14 @@ Examples:
   # Export results to JSON
   python -m benchmarks core -j results.json
 
-  # Save detailed execution logs (for failed test analysis)
-  python -m benchmarks core --save-details core-details.json
+  # Disable automatic details saving
+  python -m benchmarks core --no-details
+
+  # Specify custom details filename
+  python -m benchmarks core --save-details my-details.json
+
+  # Disable LLM validation for failed tests
+  python -m benchmarks core --no-llm-validation
 
   # List available suites
   python -m benchmarks --list-suites
@@ -217,10 +223,27 @@ Examples:
         help="Number of parallel workers (default: 4)"
     )
     parser.add_argument(
+        "--provider", "-p",
+        type=str,
+        default=None,
+        help="LLM provider to use for validation (dashscope, cloudflare, etc.)"
+    )
+    parser.add_argument(
+        "--no-llm-validation",
+        action="store_true",
+        help="Disable LLM-assisted validation for failed tests"
+    )
+    parser.add_argument(
         "--save-details",
         type=str,
         metavar="FILE",
-        help="Save detailed execution logs to JSON file (includes code, stderr, etc.)"
+        default=None,
+        help="Save detailed execution logs to JSON file (default: auto-generated filename, use --no-details to disable)"
+    )
+    parser.add_argument(
+        "--no-details",
+        action="store_true",
+        help="Disable automatic saving of detailed execution logs"
     )
 
     args = parser.parse_args()
@@ -247,22 +270,33 @@ Examples:
         return
 
     # Run the appropriate benchmark
+    enable_llm_validation = not args.no_llm_validation
+
     if args.suite in ("core", "classic"):
         filter_comp = Complexity(args.complexity) if args.complexity else None
         results = run_core_benchmark(
             cases=suite.cases,
             filter_complexity=filter_comp,
             limit=args.limit,
-            workers=args.workers
+            workers=args.workers,
+            provider=args.provider,
+            enable_llm_validation=enable_llm_validation
         )
         print_report_core(results)
 
-        # Export detailed logs if requested
-        if args.save_details:
+        # Export detailed logs (default unless --no-details)
+        if not args.no_details:
             details_data = [details.to_dict() for _, _, _, details in results]
-            with open(args.save_details, "w", encoding="utf-8") as f:
+            # Auto-generate filename if not specified
+            if args.save_details:
+                details_file = args.save_details
+            else:
+                from datetime import datetime
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                details_file = f"details-{args.suite}-{timestamp}.json"
+            with open(details_file, "w", encoding="utf-8") as f:
                 json.dump(details_data, f, ensure_ascii=False, indent=2)
-            print(f"{Colors.OKGREEN}✓ Saved details to {args.save_details}{Colors.ENDC}")
+            print(f"{Colors.OKGREEN}✓ Saved details to {details_file}{Colors.ENDC}")
 
         if args.json:
             data = [{
@@ -289,7 +323,9 @@ Examples:
             cases=suite.cases,
             filter_type=filter_type,
             limit=args.limit,
-            workers=args.workers
+            workers=args.workers,
+            provider=args.provider,
+            enable_llm_validation=enable_llm_validation
         )
 
         display = StreamingDisplay()
@@ -301,12 +337,19 @@ Examples:
             "sub_agent_calls": hr.sub_agent_calls,
         } for hr, _ in results])
 
-        # Export detailed logs if requested
-        if args.save_details:
+        # Export detailed logs (default unless --no-details)
+        if not args.no_details:
             details_data = [details.to_dict() for _, details in results]
-            with open(args.save_details, "w", encoding="utf-8") as f:
+            # Auto-generate filename if not specified
+            if args.save_details:
+                details_file = args.save_details
+            else:
+                from datetime import datetime
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                details_file = f"details-semantic-{timestamp}.json"
+            with open(details_file, "w", encoding="utf-8") as f:
                 json.dump(details_data, f, ensure_ascii=False, indent=2)
-            print(f"{Colors.OKGREEN}✓ Saved details to {args.save_details}{Colors.ENDC}")
+            print(f"{Colors.OKGREEN}✓ Saved details to {details_file}{Colors.ENDC}")
 
         if args.json:
             data = [{

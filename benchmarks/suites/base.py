@@ -112,6 +112,9 @@ class TestDetails:
     # Timestamp
     timestamp: str = ""
 
+    # Validation metadata
+    llm_validated: bool = False
+
     def to_dict(self) -> dict:
         """Convert to JSON-serializable dict."""
         return {
@@ -135,6 +138,7 @@ class TestDetails:
             "expected_pattern": self.expected_pattern,
             "expected_numeric": self.expected_numeric,
             "timestamp": self.timestamp,
+            "llm_validated": self.llm_validated,
         }
 
 
