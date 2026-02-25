@@ -254,6 +254,7 @@ ALLOWED_MODULES = {
 
 # Retry configuration
 MAX_SECURITY_RETRIES = 3  # Max retries for security violations
+MAX_EXECUTION_RETRIES = 3  # Max retries for execution errors (self-healing)
 
 # Sub-Agent configuration
 MAX_SUB_AGENT_DEPTH = 3   # Max recursive depth for sub-agent calls
@@ -688,19 +689,75 @@ def main():
         print("--- Execution Result ---", file=sys.stderr)
 
     # ==========================================================================
-    # Phase 2: Execute Code (with error reporting, no retry for logic errors)
+    # Phase 2: Execute Code with Self-Healing Retry Loop
     # ==========================================================================
-    timer.start("Code Execute")
-    output, error = execute_code(code, client=client, provider=provider)
-    timer.stop()
+    output = ""
+    error = ""
+    execution_error = None
 
-    if error:
-        print(f"\n代码执行时发生错误:", file=sys.stderr)
+    for exec_attempt in range(MAX_EXECUTION_RETRIES):
+        timer.start("Code Execute")
+        output, error = execute_code(code, client=client, provider=provider)
+        timer.stop()
+
+        if not error:
+            break  # Execution successful
+
+        # Execution failed, attempt self-healing
+        execution_error = error
+        if exec_attempt < MAX_EXECUTION_RETRIES - 1:
+            print(f"\n  Execution error, attempting self-heal ({exec_attempt + 1}/{MAX_EXECUTION_RETRIES})...", file=sys.stderr)
+
+            # Build error feedback for LLM to fix
+            error_feedback = f"""代码执行时发生错误：
+{error}
+
+请修复上述错误，确保：
+1. 正确处理所有异常情况（如除零、索引越界、变量未定义等）
+2. 变量在使用前已定义
+3. 语法和逻辑正确
+
+只输出修复后的代码，不要解释。"""
+
+            # Generate new code with error feedback
+            llm_timer.start("LLM Generate (Self-Heal)")
+            response, conversation_history = generate_code(
+                client,
+                args.query,
+                model,
+                error_feedback=error_feedback,
+                conversation_history=conversation_history
+            )
+            llm_timer.stop()
+
+            # Extract code from healing response
+            code_extract_timer.start("Code Extract (Self-Heal)")
+            code = extract_code(response)
+            code_extract_timer.stop()
+
+            if not code:
+                print("  Failed to extract code from healing response", file=sys.stderr)
+                continue
+
+            # Security check for healed code
+            security_timer.start("Security Check (Self-Heal)")
+            violations = check_code_safety(code)
+            security_timer.stop()
+
+            if violations:
+                print(f"  Security violation in healed code: {violations[0]}", file=sys.stderr)
+                continue
+
+            print("  Healed code generated, retrying execution...", file=sys.stderr)
+
+    # After all attempts, check if we still have an error
+    if execution_error and error:
+        print(f"\n经过 {MAX_EXECUTION_RETRIES} 次自愈尝试，仍无法执行成功:", file=sys.stderr)
         print(error, file=sys.stderr)
         print(f"\n问题类型: 代码逻辑错误（非安全问题）", file=sys.stderr)
         print(f"建议: 检查代码逻辑或重新表述您的需求", file=sys.stderr)
         if args.show_code:
-            print("\n执行的代码:", file=sys.stderr)
+            print("\n最终执行的代码:", file=sys.stderr)
             print(code, file=sys.stderr)
         sys.exit(1)
 

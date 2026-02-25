@@ -46,13 +46,14 @@ upa-dev/
 - [x] AST-based security guardrails
 - [x] CLI with timing support
 
-### 🚧 Phase 2: Semantic Integration (Planned)
-- [ ] `ask_sub_agent()` function for semantic tasks
-- [ ] Multi-level LLM calling (main for code, sub for semantics)
+### ✅ Phase 2: Semantic Integration (Complete)
+- [x] `ask_sub_agent()` function for semantic tasks
+- [x] Multi-level LLM calling (main for code, sub for semantics)
+- [x] Multi-provider support (DashScope, Cloudflare)
 
-### 📋 Phase 3: Code Memory (Planned)
-- [ ] Code cache (Redis/Postgres)
-- [ ] Auto-heal on execution errors
+### ✅ Phase 3: Self-Healing (Complete)
+- [x] Auto-heal on execution errors (MAX_EXECUTION_RETRIES=3)
+- [x] Error feedback to LLM for automatic code repair
 
 ## Usage Examples
 
