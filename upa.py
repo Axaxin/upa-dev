@@ -97,9 +97,115 @@ load_dotenv()
 # Configuration from .env
 import os
 
+# =============================================================================
+# Sub-Agent Context (for recursive calls)
+# =============================================================================
+
+class SubAgentContext:
+    """Context for tracking sub-agent recursion depth."""
+    _depth = 0
+    _enabled = True
+
+    @classmethod
+    def depth(cls) -> int:
+        """Get current recursion depth."""
+        return cls._depth
+
+    @classmethod
+    def increment(cls) -> int:
+        """Increment depth and return new value."""
+        cls._depth += 1
+        return cls._depth
+
+    @classmethod
+    def decrement(cls) -> int:
+        """Decrement depth and return new value."""
+        cls._depth = max(0, cls._depth - 1)
+        return cls._depth
+
+    @classmethod
+    def reset(cls):
+        """Reset depth to zero."""
+        cls._depth = 0
+
+    @classmethod
+    def is_enabled(cls) -> bool:
+        """Check if sub-agent calls are enabled."""
+        return cls._enabled
+
+    @classmethod
+    def disable(cls):
+        """Disable sub-agent calls (for security)."""
+        cls._enabled = False
+
 DASHSCOPE_URL = os.getenv("DASHSCOPE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
 DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY", "")
 DASHSCOPE_MODEL = os.getenv("DASHSCOPE_MODEL", "qwen-plus")
+
+# =============================================================================
+# Provider Configuration
+# =============================================================================
+
+@dataclass
+class ProviderConfig:
+    """LLM provider configuration."""
+    name: str
+    url: str
+    api_key: str
+    model: str
+
+# Predefined providers
+PROVIDERS = {
+    "dashscope": ProviderConfig(
+        name="DashScope (阿里云)",
+        url=DASHSCOPE_URL,
+        api_key=DASHSCOPE_API_KEY,
+        model=DASHSCOPE_MODEL,
+    ),
+    "cloudflare": ProviderConfig(
+        name="Cloudflare Gateway + Grok",
+        url=os.getenv("CLOUDFLARE_URL", "https://gateway.ai.cloudflare.com/v1/632ba9b9506a87e7fe1d5f7e7db78d57/gemini/compat"),
+        api_key=os.getenv("CLOUDFLARE_API_KEY", ""),
+        model=os.getenv("CLOUDFLARE_MODEL", "grok/grok-4-1-fast-non-reasoning"),
+    ),
+}
+
+# Default provider (can be overridden by env var or CLI)
+DEFAULT_PROVIDER = os.getenv("UPA_PROVIDER", "cloudflare")
+
+def get_provider(provider_name: str | None = None) -> ProviderConfig:
+    """Get provider configuration by name."""
+    if provider_name is None:
+        provider_name = DEFAULT_PROVIDER
+
+    if provider_name in PROVIDERS:
+        return PROVIDERS[provider_name]
+
+    # Try to load from environment with custom provider name
+    env_url = os.getenv(f"{provider_name.upper()}_URL")
+    env_key = os.getenv(f"{provider_name.upper()}_API_KEY")
+    env_model = os.getenv(f"{provider_name.upper()}_MODEL")
+
+    if env_url and env_key:
+        return ProviderConfig(
+            name=provider_name,
+            url=env_url,
+            api_key=env_key,
+            model=env_model or "default",
+        )
+
+    raise ValueError(f"Unknown provider: {provider_name}. Available: {list(PROVIDERS.keys())}")
+
+def list_providers() -> None:
+    """List all available providers."""
+    print("Available LLM Providers:")
+    print("─" * 50)
+    for key, provider in PROVIDERS.items():
+        default = " (default)" if key == DEFAULT_PROVIDER else ""
+        print(f"  {key:12} → {provider.name}{default}")
+    print()
+    print("Usage:")
+    print(f"  upa.py --provider <name> \"your query\"")
 
 # System Prompt: Always-Code
 SYSTEM_PROMPT = """你是一个 Python 逻辑单元。你的回答必须仅包含一个 Python 代码块。
@@ -110,7 +216,19 @@ SYSTEM_PROMPT = """你是一个 Python 逻辑单元。你的回答必须仅包�
 3. 计算场景：生成计算逻辑并 print 结果
 4. 数据处理：可以使用 datetime, json, re, math 等标准库
 
-重要：不要输出任何代码块之外的文字，只输出 ```python ... ```"""
+可用的特殊函数：
+- ask_sub_agent(query: str) -> str: 用于处理语义理解、翻译、总结等需要 AI 的任务。
+  调用后会返回处理结果的字符串。
+  示例: result = ask_sub_agent("请总结这段文本的主旨")
+
+使用场景：
+- 纯逻辑/计算任务：直接用 Python 代码
+- 需要语义理解/翻译/总结：使用 ask_sub_agent()
+- 混合任务：先获取语义信息，再做逻辑处理
+
+重要：
+- 不要输出任何代码块之外的文字
+- 只输出 ```python ... ``` 格式的代码"""
 
 # Security: Blocked modules and functions
 BLOCKED_MODULES = {
@@ -136,6 +254,10 @@ ALLOWED_MODULES = {
 
 # Retry configuration
 MAX_SECURITY_RETRIES = 3  # Max retries for security violations
+
+# Sub-Agent configuration
+MAX_SUB_AGENT_DEPTH = 3   # Max recursive depth for sub-agent calls
+SUB_AGENT_TIMEOUT = 60    # Timeout for sub-agent calls in seconds
 
 
 class SecurityChecker(ast.NodeVisitor):
@@ -187,21 +309,147 @@ def check_code_safety(code: str) -> list[str]:
         return [f"Syntax error: {e}"]
 
 
-def create_client() -> OpenAI:
-    """Create OpenAI client configured for DashScope."""
+def ask_sub_agent(query: str, client: OpenAI | None = None, model: str = None) -> str:
+    """
+    Sub-agent function for semantic tasks.
+    This function is injected into the sandbox for LLM-generated code to call.
+
+    Args:
+        query: The semantic query to process
+        client: OpenAI client (will be created if not provided)
+        model: Model name to use
+
+    Returns:
+        The output string from executing the sub-agent's code
+
+    Example usage in sandbox:
+        summary = ask_sub_agent("总结这段文字")
+        translation = ask_sub_agent("Translate to English: Hello")
+    """
+    # Check if sub-agent calls are enabled
+    if not SubAgentContext.is_enabled():
+        return "[Error: Sub-agent calls disabled]"
+
+    # Check recursion depth
+    current_depth = SubAgentContext.depth()
+    if current_depth >= MAX_SUB_AGENT_DEPTH:
+        return f"[Error: Maximum sub-agent depth ({MAX_SUB_AGENT_DEPTH}) reached]"
+
+    # Increment depth for this call
+    SubAgentContext.increment()
+    depth = SubAgentContext.depth()
+
+    # Output sub-agent call info to stderr for tracking
+    print(f"Sub-Agent Call (L{depth}): {query[:50]}...", file=sys.stderr)
+
+    # Get default model if not specified
+    if model is None:
+        provider = get_provider()
+        model = provider.model
+
+    try:
+        # Create client if not provided
+        if client is None:
+            client = create_client()
+
+        # Sub-agent system prompt (similar but indicates it's a sub-agent call)
+        sub_prompt = f"""你是一个 Python 语义处理子程序（深度 {depth}/{MAX_SUB_AGENT_DEPTH}）。
+你的回答必须仅包含一个 Python 代码块，用 print() 输出结果。
+
+这是一个子任务，专注于语义处理：
+- 翻译任务：输出翻译后的文本
+- 总结任务：输出总结内容
+- 理解任务：输出理解结果
+
+只输出代码，不要解释。"""
+
+        # Call LLM for sub-agent
+        import signal
+
+        def timeout_handler(signum, frame):
+            raise TimeoutError("Sub-agent call timed out")
+
+        # Set timeout (works on Unix systems)
+        if hasattr(signal, 'SIGALRM'):
+            signal.signal(signal.SIGALRM, timeout_handler)
+            signal.alarm(SUB_AGENT_TIMEOUT)
+
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": sub_prompt},
+                    {"role": "user", "content": query}
+                ],
+                temperature=0.7,
+            )
+        finally:
+            if hasattr(signal, 'SIGALRM'):
+                signal.alarm(0)  # Cancel alarm
+
+        response_content = response.choices[0].message.content or ""
+
+        # Extract code from response
+        code = extract_code(response_content)
+        if not code:
+            return f"[Error: Sub-agent did not return valid code]"
+
+        # Optional: security check for sub-agent code
+        violations = check_code_safety(code)
+        if violations:
+            return f"[Error: Sub-agent code security violation: {violations[0]}]"
+
+        # Execute sub-agent code
+        old_stdout = sys.stdout
+        sys.stdout = io.StringIO()
+
+        sandbox_globals = {
+            "__builtins__": __builtins__,
+            "datetime": __import__("datetime"),
+            "json": __import__("json"),
+            "re": __import__("re"),
+            "math": __import__("math"),
+            "random": __import__("random"),
+            "collections": __import__("collections"),
+            "itertools": __import__("itertools"),
+        }
+
+        try:
+            exec(code, sandbox_globals)
+            output = sys.stdout.getvalue()
+            return output.rstrip()  # Remove trailing whitespace
+        except Exception as e:
+            return f"[Error: Sub-agent execution failed: {str(e)}]"
+        finally:
+            sys.stdout = old_stdout
+
+    except TimeoutError:
+        return f"[Error: Sub-agent call timed out after {SUB_AGENT_TIMEOUT}s]"
+    except Exception as e:
+        return f"[Error: Sub-agent call failed: {str(e)}]"
+    finally:
+        # Always decrement depth when done
+        SubAgentContext.decrement()
+
+
+def create_client(provider: ProviderConfig | None = None) -> OpenAI:
+    """Create OpenAI client configured for the specified provider."""
+    if provider is None:
+        provider = get_provider()
     return OpenAI(
-        api_key=DASHSCOPE_API_KEY,
-        base_url=DASHSCOPE_URL,
+        api_key=provider.api_key,
+        base_url=provider.url,
     )
 
 
-def generate_code(client: OpenAI, query: str, error_feedback: str | None = None, conversation_history: list | None = None) -> tuple[str, list]:
+def generate_code(client: OpenAI, query: str, model: str, error_feedback: str | None = None, conversation_history: list | None = None) -> tuple[str, list]:
     """
     Call LLM to generate Python code for the query.
 
     Args:
         client: OpenAI client
         query: User query
+        model: Model name to use
         error_feedback: Optional error message from previous attempt
         conversation_history: Previous messages for retry context
 
@@ -229,7 +477,7 @@ def generate_code(client: OpenAI, query: str, error_feedback: str | None = None,
         })
 
     response = client.chat.completions.create(
-        model=DASHSCOPE_MODEL,
+        model=model,
         messages=messages,
         temperature=0.7,
     )
@@ -254,13 +502,29 @@ def extract_code(response: str) -> str | None:
     return None
 
 
-def execute_code(code: str) -> tuple[str, str]:
+def execute_code(code: str, client: OpenAI | None = None, provider: ProviderConfig | None = None) -> tuple[str, str]:
     """
     Execute Python code in a sandbox-like environment.
     Returns (stdout, error_message).
     """
     old_stdout = sys.stdout
     sys.stdout = io.StringIO()
+
+    # Get provider for model name (use passed provider or default)
+    if provider is None:
+        provider = get_provider()
+
+    # Create a partial function for ask_sub_agent with the client and model
+    def make_ask_sub_agent(llm_client: OpenAI, model_name: str):
+        def ask_sub_agent_wrapper(query: str) -> str:
+            return ask_sub_agent(query, client=llm_client, model=model_name)
+        return ask_sub_agent_wrapper
+
+    # Get model name for sub-agent calls
+    if client:
+        ask_sub_agent_fn = make_ask_sub_agent(client, provider.model)
+    else:
+        ask_sub_agent_fn = lambda q: "[Error: No LLM client]"
 
     # Restricted globals for sandbox
     sandbox_globals = {
@@ -272,6 +536,8 @@ def execute_code(code: str) -> tuple[str, str]:
         "random": __import__("random"),
         "collections": __import__("collections"),
         "itertools": __import__("itertools"),
+        # Inject ask_sub_agent if client is available
+        "ask_sub_agent": ask_sub_agent_fn,
     }
 
     try:
@@ -286,9 +552,10 @@ def execute_code(code: str) -> tuple[str, str]:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="UPA - Unified Programmatic Architecture CLI"
+        description="UPA - Unified Programmatic Architecture CLI",
+        epilog="Available providers: " + ", ".join(PROVIDERS.keys())
     )
-    parser.add_argument("query", help="The query to process")
+    parser.add_argument("query", nargs='?', help="The query to process")
     parser.add_argument(
         "--show-code",
         action="store_true",
@@ -299,19 +566,49 @@ def main():
         action="store_true",
         help="Show timing report after execution",
     )
+    parser.add_argument(
+        "--provider", "-p",
+        choices=list(PROVIDERS.keys()),
+        help=f"LLM provider to use (default: {DEFAULT_PROVIDER})",
+    )
+    parser.add_argument(
+        "--list-providers",
+        action="store_true",
+        help="List all available LLM providers",
+    )
 
     args = parser.parse_args()
+
+    # Handle --list-providers
+    if args.list_providers:
+        list_providers()
+        sys.exit(0)
+
+    # Validate query is provided
+    if not args.query:
+        parser.print_help()
+        sys.exit(1)
+
+    # Reset sub-agent context for fresh execution
+    SubAgentContext.reset()
+
+    # Get provider configuration
+    provider = get_provider(args.provider)
 
     # Initialize timer
     timer = Timer()
 
     # Validate API key
-    if not DASHSCOPE_API_KEY:
-        print("Error: DASHSCOPE_API_KEY not set in .env", file=sys.stderr)
+    if not provider.api_key:
+        print(f"Error: API key not set for provider '{args.provider or DEFAULT_PROVIDER}'", file=sys.stderr)
         sys.exit(1)
 
-    # Create client
-    client = create_client()
+    # Create client with selected provider
+    client = create_client(provider)
+    model = provider.model
+
+    # Show provider info
+    print(f"Using: {provider.name} ({model})", file=sys.stderr)
 
     # ==========================================================================
     # Phase 1: Code Generation with Security Retry Loop
@@ -334,6 +631,7 @@ def main():
         response, conversation_history = generate_code(
             client,
             args.query,
+            model,
             error_feedback=error_feedback,
             conversation_history=conversation_history
         )
@@ -393,7 +691,7 @@ def main():
     # Phase 2: Execute Code (with error reporting, no retry for logic errors)
     # ==========================================================================
     timer.start("Code Execute")
-    output, error = execute_code(code)
+    output, error = execute_code(code, client=client, provider=provider)
     timer.stop()
 
     if error:
