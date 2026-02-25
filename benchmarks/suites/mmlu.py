@@ -1390,6 +1390,825 @@ D. 阿拉伯语
 
 
 # ============================================================================
+# Additional MMLU Subject Categories (60 new questions)
+# ============================================================================
+
+MMLU_BUSINESS_SAMPLES: list[TestCase] = [
+    TestCase(
+        name="Business: SWOT Analysis",
+        query="""问题：SWOT 分析中的 "S" 代表什么？
+A. Strengths
+B. Strategy
+C. Sales
+D. Success
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.SIMPLE,
+        expect_contains="A",
+        description="Business strategy framework"
+    ),
+
+    TestCase(
+        name="Business: ROI",
+        query="""问题：ROI 的全称是什么？
+A. Rate of Interest
+B. Return on Investment
+C. Return on Income
+D. Rate of Inflation
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.SIMPLE,
+        expect_contains="B",
+        description="Financial metric"
+    ),
+
+    TestCase(
+        name="Business: Supply Chain",
+        query="""问题：供应链管理的核心目标是？
+A. 最大化库存
+B. 优化流程、降低成本
+C. 增加供应商数量
+D. 提高产品价格
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.MEDIUM,
+        expect_contains="B",
+        description="Operations management"
+    ),
+
+    TestCase(
+        name="Business: Marketing Mix 4P",
+        query="""问题：营销组合 4P 不包括以下哪项？
+A. Product
+B. Price
+C. Profit
+D. Promotion
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.MEDIUM,
+        expect_contains="C",
+        description="Marketing fundamentals"
+    ),
+
+    TestCase(
+        name="Business: Break-even",
+        query="""问题：盈亏平衡点是？
+A. 收入最大化的点
+B. 成本最低的点
+C. 收入等于成本的点
+D. 利润最高的点
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.MEDIUM,
+        expect_contains="C",
+        description="Financial analysis"
+    ),
+
+    TestCase(
+        name="Business: Leadership",
+        query="""问题：变革型领导者的核心特征是？
+A. 维持现状
+B. 激励和激励追随者超越预期
+C. 严格控制下属
+D. 避免风险
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.MEDIUM,
+        expect_contains="B",
+        description="Organizational behavior"
+    ),
+
+    TestCase(
+        name="Business: BCG Matrix",
+        query="""问题：BCG 矩阵中"现金牛"业务的特点是？
+A. 高增长、高市场份额
+B. 低增长、高市场份额
+C. 高增长、低市场份额
+D. 低增长、低市场份额
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.COMPLEX,
+        expect_contains="B",
+        description="Strategic planning"
+    ),
+
+    TestCase(
+        name="Business: Porter's Five Forces",
+        query="""问题：波特五力模型不包括以下哪项？
+A. 供应商议价能力
+B. 买方议价能力
+C. 政府监管强度
+D. 替代品威胁
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.COMPLEX,
+        expect_contains="C",
+        description="Competitive analysis"
+    ),
+]
+
+MMLU_POLITICS_SAMPLES: list[TestCase] = [
+    TestCase(
+        name="Politics: Democracy",
+        query="""问题：民主制度的核心原则是？
+A. 君主统治
+B. 人民主权
+C. 军事独裁
+D. 神权统治
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.SIMPLE,
+        expect_contains="B",
+        description="Political systems"
+    ),
+
+    TestCase(
+        name="Politics: Separation of Powers",
+        query="""问题：三权分立不包括以下哪项？
+A. 立法权
+B. 行政权
+C. 司法权
+D. 监察权
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.SIMPLE,
+        expect_contains="D",
+        description="Constitutional theory"
+    ),
+
+    TestCase(
+        name="Politics: Ideology",
+        query="""问题：自由主义的核心价值观是？
+A. 集体主义高于个人
+B. 个人自由和权利
+C. 国家干预经济
+D. 传统价值至上
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.MEDIUM,
+        expect_contains="B",
+        description="Political ideology"
+    ),
+
+    TestCase(
+        name="Politics: United Nations",
+        query="""问题：联合国安理会常任理事国有几个？
+A. 5个
+B. 7个
+C. 10个
+D. 15个
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.SIMPLE,
+        expect_contains="A",
+        description="International organizations"
+    ),
+
+    TestCase(
+        name="Politics: Electoral Systems",
+        query="""问题：比例代表制的主要特点是？
+A. 赢者通吃
+B. 席位按投票比例分配
+C. 只有两党能获胜
+D. 必须获得绝对多数
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.MEDIUM,
+        expect_contains="B",
+        description="Voting systems"
+    ),
+
+    TestCase(
+        name="Politics: Social Contract",
+        query="""问题：社会契约理论的代表人物不包括？
+A. 霍布斯
+B. 洛克
+C. 卢梭
+D. 黑格尔
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.COMPLEX,
+        expect_contains="D",
+        description="Political philosophy"
+    ),
+
+    TestCase(
+        name="Politics: GDP",
+        query="""问题：GDP 的全称是？
+A. Gross Domestic Product
+B. General Domestic Product
+C. Gross Development Product
+D. General Development Product
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.SIMPLE,
+        expect_contains="A",
+        description="Economic indicators"
+    ),
+]
+
+MMLU_EDUCATION_SAMPLES: list[TestCase] = [
+    TestCase(
+        name="Education: Bloom's Taxonomy",
+        query="""问题：布鲁姆认知目标分类中最高层次是？
+A. 应用
+B. 分析
+C. 评价
+D. 创造
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.MEDIUM,
+        expect_contains="D",
+        description="Educational psychology"
+    ),
+
+    TestCase(
+        name="Education: Learning Styles",
+        query="""问题：VARK 学习风格模型不包括？
+A. Visual
+B. Auditory
+C. Kinesthetic
+D. Emotional
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.MEDIUM,
+        expect_contains="D",
+        description="Learning theories"
+    ),
+
+    TestCase(
+        name="Education: Constructivism",
+        query="""问题：建构主义学习理论的核心观点是？
+A. 学生被动接受知识
+B. 学习者主动构建知识
+C. 教师是唯一的知识来源
+D. 记忆是学习的主要方式
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.MEDIUM,
+        expect_contains="B",
+        description="Learning theory"
+    ),
+
+    TestCase(
+        name="Education: Formative Assessment",
+        query="""问题：形成性评价的主要目的是？
+A. 给学生最终成绩
+B. 改进教学过程
+C. 选拔优秀学生
+D. 评价教师绩效
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.MEDIUM,
+        expect_contains="B",
+        description="Assessment methods"
+    ),
+
+    TestCase(
+        name="Education: Scaffolding",
+        query="""问题：支架式教学的概念最早由谁提出？
+A. 皮亚杰
+B. 维果茨基
+C. 布鲁纳
+D. 斯金纳
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.COMPLEX,
+        expect_contains="B",
+        description="Educational theory"
+    ),
+
+    TestCase(
+        name="Education: Multiple Intelligences",
+        query="""问题：多元智能理论的提出者是？
+A. 加德纳
+B. 斯滕伯格
+C. 卡特尔
+D. 斯皮尔曼
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.MEDIUM,
+        expect_contains="A",
+        description="Intelligence theory"
+    ),
+
+    TestCase(
+        name="Education: Andragogy",
+        query="""问题：成人教育学的英文名称是？
+A. Pedagogy
+B. Andragogy
+C. Heutagogy
+D. Synergogy
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.MEDIUM,
+        expect_contains="B",
+        description="Adult learning"
+    ),
+]
+
+MMLU_ENVIRONMENT_SAMPLES: list[TestCase] = [
+    TestCase(
+        name="Environment: Greenhouse Effect",
+        query="""问题：温室效应的主要原因是？
+A. 氧气增加
+B. 温室气体排放
+C. 森林砍伐减少
+D. 海洋温度下降
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.SIMPLE,
+        expect_contains="B",
+        description="Climate change"
+    ),
+
+    TestCase(
+        name="Environment: Carbon Footprint",
+        query="""问题：碳足迹衡量的是？
+A. 身体留下的痕迹
+B. 活动产生的二氧化碳排放量
+C. 森林覆盖面积
+D. 能源消耗总量
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.SIMPLE,
+        expect_contains="B",
+        description="Environmental metrics"
+    ),
+
+    TestCase(
+        name="Environment: Biodiversity",
+        query="""问题：生物多样性 hotspot 的特点是？
+A. 物种丰富且受威胁严重
+B. 物种稀少且稳定
+C. 只存在于极地地区
+D. 不受人类活动影响
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.MEDIUM,
+        expect_contains="A",
+        description="Conservation biology"
+    ),
+
+    TestCase(
+        name="Environment: Renewable Energy",
+        query="""问题：以下哪项不是可再生能源？
+A. 太阳能
+B. 风能
+C. 天然气
+D. 水能
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.SIMPLE,
+        expect_contains="C",
+        description="Energy sources"
+    ),
+
+    TestCase(
+        name="Environment: Ozone Layer",
+        query="""问题：臭氧层的主要作用是？
+A. 保持地球温度
+B. 吸收有害紫外线
+C. 产生氧气
+D. 调节降水
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.MEDIUM,
+        expect_contains="B",
+        description="Atmospheric science"
+    ),
+
+    TestCase(
+        name="Environment: Eutrophication",
+        query="""问题：水体富营养化的主要原因是？
+A. 重金属污染
+B. 氮磷营养物质过多
+C. 酸性物质排放
+D. 石油泄漏
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.MEDIUM,
+        expect_contains="B",
+        description="Water pollution"
+    ),
+
+    TestCase(
+        name="Environment: Paris Agreement",
+        query="""问题：《巴黎协定》的主要目标是？
+A. 禁止所有化石燃料
+B. 限制全球平均升温
+C. 强制所有国家碳中和
+D. 取消所有工业活动
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.MEDIUM,
+        expect_contains="B",
+        description="Climate policy"
+    ),
+]
+
+MMLU_STATISTICS_SAMPLES: list[TestCase] = [
+    TestCase(
+        name="Statistics: Mean",
+        query="""问题：数据集 [2, 4, 6, 8, 10] 的平均值是？
+A. 5
+B. 6
+C. 7
+D. 8
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.SIMPLE,
+        expect_contains="B",
+        description="Descriptive statistics"
+    ),
+
+    TestCase(
+        name="Statistics: Median",
+        query="""问题：数据集 [3, 7, 2, 9, 1] 的中位数是？
+A. 2
+B. 3
+C. 7
+D. 9
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.SIMPLE,
+        expect_contains="B",
+        description="Descriptive statistics"
+    ),
+
+    TestCase(
+        name="Statistics: Standard Deviation",
+        query="""问题：标准差衡量的是？
+A. 数据的平均值
+B. 数据的离散程度
+C. 数据的总和
+D. 数据的最大值
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.MEDIUM,
+        expect_contains="B",
+        description="Variability measures"
+    ),
+
+    TestCase(
+        name="Statistics: Correlation",
+        query="""问题：相关系数 r 的取值范围是？
+A. 0 到 1
+B. -1 到 1
+C. -∞ 到 +∞
+D. 0 到 100
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.MEDIUM,
+        expect_contains="B",
+        description="Correlation analysis"
+    ),
+
+    TestCase(
+        name="Statistics: Hypothesis Testing",
+        query="""问题：p 值小于 0.05 意味着？
+A. 接受零假设
+B. 拒绝零假设
+C. 结果不显著
+D. 需要更多样本
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.MEDIUM,
+        expect_contains="B",
+        description="Inferential statistics"
+    ),
+
+    TestCase(
+        name="Statistics: Normal Distribution",
+        query="""问题：正态分布中，约多少数据位于均值±1个标准差内？
+A. 50%
+B. 68%
+C. 95%
+D. 99%
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.MEDIUM,
+        expect_contains="B",
+        description="Probability distributions"
+    ),
+
+    TestCase(
+        name="Statistics: Type I Error",
+        query="""问题：第一类错误（Type I）是指？
+A. 零假设为真时拒绝了它
+B. 零假设为假时接受了它
+C. 样本量不足
+D. 计算错误
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.COMPLEX,
+        expect_contains="A",
+        description="Hypothesis testing errors"
+    ),
+]
+
+MMLU_ACCOUNTING_SAMPLES: list[TestCase] = [
+    TestCase(
+        name="Accounting: Assets",
+        query="""问题：会计基本等式是？
+A. 收入 - 费用 = 利润
+B. 资产 = 负债 + 所有者权益
+C. 借方 = 贷方
+D. 现金流入 = 现金流出
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.SIMPLE,
+        expect_contains="B",
+        description="Fundamental accounting equation"
+    ),
+
+    TestCase(
+        name="Accounting: Debit/Credit",
+        query="""问题：资产类账户增加记在？
+A. 借方
+B. 贷方
+C. 双方均可
+D. 不记录
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.SIMPLE,
+        expect_contains="A",
+        description="Double-entry bookkeeping"
+    ),
+
+    TestCase(
+        name="Accounting: Depreciation",
+        query="""问题：折旧是一种？
+A. 现金流出
+B. 费用分摊
+C. 负债增加
+D. 收入减少
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.MEDIUM,
+        expect_contains="B",
+        description="Asset valuation"
+    ),
+
+    TestCase(
+        name="Accounting: Accrual Basis",
+        query="""问题：权责发生制与收付实现制的主要区别是？
+A. 记账时间不同
+B. 货币种类不同
+C. 税率不同
+D. 报表格式不同
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.MEDIUM,
+        expect_contains="A",
+        description="Accounting methods"
+    ),
+
+    TestCase(
+        name="Accounting: Liquidity Ratio",
+        query="""问题：流动比率衡量的是？
+A. 盈利能力
+B. 短期偿债能力
+C. 长期偿债能力
+D. 资产周转速度
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.MEDIUM,
+        expect_contains="B",
+        description="Financial ratios"
+    ),
+
+    TestCase(
+        name="Accounting: COGS",
+        query="""问题：COGS（销售成本）是指？
+A. Cost of Goods Sold
+B. Cost of General Sales
+C. Cost of Global Standards
+D. Cost of Government Services
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.SIMPLE,
+        expect_contains="A",
+        description="Income statement items"
+    ),
+
+    TestCase(
+        name="Accounting: Equity",
+        query="""问题：所有者权益不包括以下哪项？
+A. 实收资本
+B. 留存收益
+C. 应付账款
+D. 资本公积
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.MEDIUM,
+        expect_contains="C",
+        description="Balance sheet components"
+    ),
+]
+
+MMLU_MARKETING_SAMPLES: list[TestCase] = [
+    TestCase(
+        name="Marketing: STP",
+        query="""问题：STP 营销中的 T 代表？
+A. Targeting
+B. Timing
+C. Testing
+D. Trust
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.SIMPLE,
+        expect_contains="A",
+        description="Marketing strategy"
+    ),
+
+    TestCase(
+        name="Marketing: CRM",
+        query="""问题：CRM 的全称是？
+A. Customer Revenue Management
+B. Customer Relationship Management
+C. Corporate Resource Management
+D. Consumer Research Method
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.SIMPLE,
+        expect_contains="B",
+        description="Customer management"
+    ),
+
+    TestCase(
+        name="Marketing: Brand Equity",
+        query="""问题：品牌资产是指？
+A. 品牌的财务价值
+B. 品牌的厂房设备
+C. 品牌的员工数量
+D. 品牌的办公用品
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.MEDIUM,
+        expect_contains="A",
+        description="Brand management"
+    ),
+
+    TestCase(
+        name="Marketing: AIDA Model",
+        query="""问题：AIDA 模型中的 A 不代表？
+A. Attention
+B. Action
+C. Analysis
+D. Interest
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.MEDIUM,
+        expect_contains="C",
+        description="Consumer behavior"
+    ),
+
+    TestCase(
+        name="Marketing: Market Segmentation",
+        query="""问题：市场细分的基础不包括？
+A. 地理因素
+B. 人口因素
+C. 心理因素
+D. 随机分配
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.MEDIUM,
+        expect_contains="D",
+        description="Market research"
+    ),
+
+    TestCase(
+        name="Marketing: SEO",
+        query="""问题：SEO 的全称是？
+A. Search Engine Optimization
+B. Social Media Engagement
+C. Site Effectiveness Operation
+D. Sales Enhancement Option
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.SIMPLE,
+        expect_contains="A",
+        description="Digital marketing"
+    ),
+
+    TestCase(
+        name="Marketing: CLV",
+        query="""问题：客户生命周期价值（CLV）衡量的是？
+A. 客户的单次购买金额
+B. 客户在整个关系期间的总价值
+C. 客户的年龄
+D. 客户的数量
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.MEDIUM,
+        expect_contains="B",
+        description="Customer analytics"
+    ),
+]
+
+MMLU_SOCILOGY_SAMPLES: list[TestCase] = [
+    TestCase(
+        name="Sociology: Socialization",
+        query="""问题：社会化的主要意思是？
+A. 使用社交媒体
+B. 学习社会规范和价值观
+C. 参加社交活动
+D. 扩大人脉关系
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.SIMPLE,
+        expect_contains="B",
+        description="Social processes"
+    ),
+
+    TestCase(
+        name="Sociology: Culture",
+        query="""问题：文化的核心要素不包括？
+A. 符号
+B. 价值观
+C. 地理位置固定
+D. 规范
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.MEDIUM,
+        expect_contains="C",
+        description="Cultural concepts"
+    ),
+
+    TestCase(
+        name="Sociology: Social Stratification",
+        query="""问题：社会分层的主要依据不包括？
+A. 经济收入
+B. 教育水平
+C. 血型
+D. 职业地位
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.SIMPLE,
+        expect_contains="C",
+        description="Social structure"
+    ),
+
+    TestCase(
+        name="Sociology: Deviance",
+        query="""问题：越轨行为是指？
+A. 违反社会规范的行为
+B. 犯罪行为
+C. 心理疾病
+D. 个性表现
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.MEDIUM,
+        expect_contains="A",
+        description="Social control"
+    ),
+
+    TestCase(
+        name="Sociology: Social Mobility",
+        query="""问题：社会流动性是指？
+A. 人口迁徙
+B. 社会地位的变化
+C. 职业转换
+D. 住所搬迁
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.MEDIUM,
+        expect_contains="B",
+        description="Social change"
+    ),
+
+    TestCase(
+        name="Sociology: Gemeinschaft",
+        query="""问题：滕尼斯提出的"礼俗社会"（Gemeinschaft）特点是？
+A. 理性、契约、匿名
+B. 情感、传统、紧密
+C. 工业化、城市化
+D. 个人主义、竞争
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.COMPLEX,
+        expect_contains="B",
+        description="Classical sociology"
+    ),
+
+    TestCase(
+        name="Sociology: Labeling Theory",
+        query="""问题：标签理论的核心观点是？
+A. 犯罪是由基因决定的
+B. 越轨是社会标签的结果
+C. 贫穷导致犯罪
+D. 教育可以消除犯罪
+
+请输出正确选项的字母（A/B/C/D）。""",
+        complexity=Complexity.COMPLEX,
+        expect_contains="B",
+        description="Deviance theories"
+    ),
+]
+
+
+# ============================================================================
 # Optional: Load from HuggingFace Dataset
 # ============================================================================
 
@@ -1575,7 +2394,15 @@ MMLU_CASES = (
     MMLU_ART_SAMPLES +
     MMLU_ADV_MATH_SAMPLES +
     MMLU_TECH_SAMPLES +
-    MMLU_LINGUISTICS_SAMPLES
+    MMLU_LINGUISTICS_SAMPLES +
+    MMLU_BUSINESS_SAMPLES +
+    MMLU_POLITICS_SAMPLES +
+    MMLU_EDUCATION_SAMPLES +
+    MMLU_ENVIRONMENT_SAMPLES +
+    MMLU_STATISTICS_SAMPLES +
+    MMLU_ACCOUNTING_SAMPLES +
+    MMLU_MARKETING_SAMPLES +
+    MMLU_SOCILOGY_SAMPLES
 )
 
 

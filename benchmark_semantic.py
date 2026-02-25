@@ -408,6 +408,12 @@ class HybridResult:
     duration: float
     sub_agent_calls: int = 0
     execution_error: str = ""
+    # Enhanced fields
+    code_content: str = ""
+    self_heal_attempts: int = 0
+    self_heal_errors: list = field(default_factory=list)
+    security_retry_count: int = 0
+    security_violations: list = field(default_factory=list)
 
 
 def parse_sub_agent_calls(stderr: str) -> int:
@@ -419,7 +425,7 @@ def parse_sub_agent_calls(stderr: str) -> int:
 
 def run_hybrid_test(test: HybridTest, display: StreamingDisplay) -> HybridResult:
     """Run a single hybrid test with streaming display."""
-    cmd = ["uv", "run", "python", "upa.py", "--timing", test.query]
+    cmd = ["uv", "run", "python", "upa.py", "--timing", "--json-output", test.query]
 
     start_time = time.perf_counter()
 
@@ -439,6 +445,25 @@ def run_hybrid_test(test: HybridTest, display: StreamingDisplay) -> HybridResult
 
         # Count sub-agent calls
         sub_calls = parse_sub_agent_calls(stderr)
+
+        # Parse JSON output for enhanced data
+        code_content = ""
+        self_heal_attempts = 0
+        self_heal_errors = []
+        security_retry_count = 0
+        security_violations = []
+
+        json_match = re.search(r"__UPA_JSON__(.+)$", stderr, re.MULTILINE | re.DOTALL)
+        if json_match:
+            try:
+                json_data = json.loads(json_match.group(1))
+                code_content = json_data.get("generated_code", "")
+                self_heal_attempts = json_data.get("self_heal_attempts", 0)
+                self_heal_errors = json_data.get("self_heal_errors", [])
+                security_retry_count = json_data.get("security_retry_count", 0)
+                security_violations = json_data.get("security_violations", [])
+            except json.JSONDecodeError:
+                pass
 
         # Evaluate result
         success = result.returncode == 0
@@ -462,7 +487,12 @@ def run_hybrid_test(test: HybridTest, display: StreamingDisplay) -> HybridResult
             output=output,
             duration=duration,
             sub_agent_calls=sub_calls,
-            execution_error=stderr if result.returncode != 0 else ""
+            execution_error=stderr if result.returncode != 0 else "",
+            code_content=code_content,
+            self_heal_attempts=self_heal_attempts,
+            self_heal_errors=self_heal_errors,
+            security_retry_count=security_retry_count,
+            security_violations=security_violations,
         )
 
     except subprocess.TimeoutExpired:

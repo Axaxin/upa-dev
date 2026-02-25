@@ -1,3 +1,6 @@
 .env
 .claude/
 __pycache__/
+# Benchmark test results (temporary)
+details-*.json
+mmlu_hf_cases.json

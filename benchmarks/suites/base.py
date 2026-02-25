@@ -104,6 +104,11 @@ class TestDetails:
     sub_agent_calls: int = 0
     sub_agent_depths: list[int] = field(default_factory=list)
 
+    # Self-healing statistics
+    self_heal_attempts: int = 0
+    self_heal_errors: list[str] = field(default_factory=list)
+    security_retry_count: int = 0
+
     # Test expectations (for validation)
     expected_contains: str | None = None
     expected_pattern: str | None = None
@@ -134,6 +139,9 @@ class TestDetails:
             "timing_ms": self.timing_ms,
             "sub_agent_calls": self.sub_agent_calls,
             "sub_agent_depths": self.sub_agent_depths,
+            "self_heal_attempts": self.self_heal_attempts,
+            "self_heal_errors": self.self_heal_errors,
+            "security_retry_count": self.security_retry_count,
             "expected_contains": self.expected_contains,
             "expected_pattern": self.expected_pattern,
             "expected_numeric": self.expected_numeric,

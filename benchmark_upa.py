@@ -62,6 +62,10 @@ class BenchmarkResult:
     code_content: str = ""
     security_violations: list[str] = field(default_factory=list)
     execution_error: str = ""
+    # Enhanced fields
+    self_heal_attempts: int = 0
+    self_heal_errors: list[str] = field(default_factory=list)
+    security_retry_count: int = 0
 
 
 @dataclass
@@ -136,7 +140,7 @@ BENCHMARK_CASES: list[TestCase] = [
 
 def run_upa_with_timing(query: str) -> BenchmarkResult:
     """Run UPA and collect timing metrics."""
-    cmd = ["uv", "run", "python", "upa.py", "--timing", query]
+    cmd = ["uv", "run", "python", "upa.py", "--timing", "--json-output", query]
 
     start_time = time.perf_counter()
     try:
@@ -158,6 +162,27 @@ def run_upa_with_timing(query: str) -> BenchmarkResult:
             if match:
                 exec_error = match.group(1).strip()[:100]
 
+        # Parse JSON output from stderr
+        code_content = ""
+        self_heal_attempts = 0
+        self_heal_errors = []
+        security_retry_count = 0
+
+        json_match = re.search(r"__UPA_JSON__(.+)$", stderr, re.MULTILINE | re.DOTALL)
+        if json_match:
+            try:
+                import json
+                json_data = json.loads(json_match.group(1))
+                code_content = json_data.get("generated_code", "")
+                self_heal_attempts = json_data.get("self_heal_attempts", 0)
+                self_heal_errors = json_data.get("self_heal_errors", [])
+                security_retry_count = json_data.get("security_retry_count", 0)
+                # Update violations from JSON if available
+                if json_data.get("security_violations"):
+                    violations = json_data["security_violations"]
+            except json.JSONDecodeError:
+                pass
+
         return BenchmarkResult(
             query=query,
             success=result.returncode == 0,
@@ -166,6 +191,10 @@ def run_upa_with_timing(query: str) -> BenchmarkResult:
             code_extracted=code_extracted,
             security_violations=violations,
             execution_error=exec_error,
+            code_content=code_content,
+            self_heal_attempts=self_heal_attempts,
+            self_heal_errors=self_heal_errors,
+            security_retry_count=security_retry_count,
         )
     except subprocess.TimeoutExpired:
         return BenchmarkResult(query=query, success=False, output="", timing={"total": 120000}, code_extracted=False, execution_error="Timeout")
@@ -443,7 +472,12 @@ def main():
         data = [{
             "test": t.name, "query": t.query, "complexity": t.complexity.value,
             "success": r.success, "timing": r.timing,
-            "quality": {m.value: v for m, v in m.items()}
+            "quality": {m.value: v for m, v in m.items()},
+            "code_content": r.code_content,
+            "self_heal_attempts": r.self_heal_attempts,
+            "self_heal_errors": r.self_heal_errors,
+            "security_retry_count": r.security_retry_count,
+            "security_violations": r.security_violations,
         } for t, r, m in results]
         with open(args.json, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)

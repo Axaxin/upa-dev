@@ -90,6 +90,14 @@ class Timer:
         print("─" * 40, file=file)
         print(f"  {'Total':16} \033[96m{total:>7.1f}ms\033[0m", file=file)
 
+    def to_dict(self) -> dict[str, float]:
+        """Export timing data as a dictionary."""
+        result = {}
+        for record in self.records:
+            result[record.name] = record.duration_ms
+        result["Total"] = self.total_ms()
+        return result
+
 
 # Load environment variables
 load_dotenv()
@@ -694,6 +702,11 @@ def main():
         action="store_true",
         help="List all available LLM providers",
     )
+    parser.add_argument(
+        "--json-output",
+        action="store_true",
+        help="Output execution details in JSON format to stderr (for benchmarking)",
+    )
 
     args = parser.parse_args()
 
@@ -743,6 +756,12 @@ def main():
     conversation_history = None
     error_feedback = None
 
+    # Track security retry statistics
+    security_retry_data = {
+        "retry_count": 0,
+        "violations": [],
+    }
+
     for attempt in range(MAX_SECURITY_RETRIES):
         # Generate code (with error feedback on retry)
         llm_timer.start("LLM Generate")
@@ -779,6 +798,8 @@ def main():
             if attempt < MAX_SECURITY_RETRIES - 1:
                 # Build error feedback for retry
                 error_feedback = "安全违规：\n" + "\n".join(f"  - {v}" for v in violations)
+                security_retry_data["retry_count"] = attempt + 1
+                security_retry_data["violations"] = violations
                 print(f"  Security violations detected, retrying... ({attempt + 1}/{MAX_SECURITY_RETRIES})", file=sys.stderr)
                 continue
             else:
@@ -812,6 +833,11 @@ def main():
     error = ""
     execution_error = None
 
+    # Track self-healing statistics
+    self_heal_attempts = 0
+    self_heal_errors = []
+    final_code = code
+
     for exec_attempt in range(MAX_EXECUTION_RETRIES):
         timer.start("Code Execute")
         output, error = execute_code(code, client=client, provider=provider)
@@ -823,6 +849,11 @@ def main():
         # Execution failed, attempt self-healing
         execution_error = error
         if exec_attempt < MAX_EXECUTION_RETRIES - 1:
+            self_heal_attempts += 1
+            # Extract first line of error for summary
+            error_summary = error.split('\n')[0][:100] if error else "Unknown error"
+            self_heal_errors.append(error_summary)
+
             print(f"\n  Execution error, attempting self-heal ({exec_attempt + 1}/{MAX_EXECUTION_RETRIES})...", file=sys.stderr)
 
             # Build error feedback for LLM to fix
@@ -866,6 +897,7 @@ def main():
                 continue
 
             print("  Healed code generated, retrying execution...", file=sys.stderr)
+            final_code = code  # Track the latest code version
 
     # After all attempts, check if we still have an error
     if execution_error and error:
@@ -884,6 +916,20 @@ def main():
     # Show timing report if requested
     if args.timing:
         timer.print_report()
+
+    # JSON output for benchmarking
+    if args.json_output:
+        import json as json_module
+        report = {
+            "generated_code": final_code,
+            "self_heal_attempts": self_heal_attempts,
+            "self_heal_errors": self_heal_errors,
+            "security_violations": security_retry_data.get("violations", []),
+            "security_retry_count": security_retry_data.get("retry_count", 0),
+            "timing_ms": timer.to_dict(),
+        }
+        # Output as a compact JSON line to stderr
+        print(f"__UPA_JSON__{json_module.dumps(report)}", file=sys.stderr)
 
 
 if __name__ == "__main__":

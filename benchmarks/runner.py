@@ -86,7 +86,7 @@ def run_upa_test(
     enable_llm_validation: bool = True
 ) -> tuple[TestCase, BenchmarkResult, dict[QualityMetric, bool], TestDetails]:
     """Run a single core UPA test."""
-    cmd = ["uv", "run", "python", "upa.py", "--timing", test.query]
+    cmd = ["uv", "run", "python", "upa.py", "--timing", "--json-output", test.query]
 
     start_time = time.perf_counter()
     from datetime import datetime
@@ -112,6 +112,26 @@ def run_upa_test(
             match = re.search(r"Execution Error:\n(.+)", stderr, re.DOTALL)
             if match:
                 exec_error = match.group(1).strip()
+
+        # Parse JSON output for enhanced data
+        self_heal_attempts = 0
+        self_heal_errors = []
+        security_retry_count = 0
+
+        json_match = re.search(r"__UPA_JSON__(.+)$", stderr, re.MULTILINE | re.DOTALL)
+        if json_match:
+            try:
+                import json
+                json_data = json.loads(json_match.group(1))
+                generated_code = json_data.get("generated_code", generated_code)
+                self_heal_attempts = json_data.get("self_heal_attempts", 0)
+                self_heal_errors = json_data.get("self_heal_errors", [])
+                security_retry_count = json_data.get("security_retry_count", 0)
+                # Update violations from JSON if available
+                if json_data.get("security_violations"):
+                    violations = json_data["security_violations"]
+            except (json.JSONDecodeError, ValueError):
+                pass
 
         benchmark_result = BenchmarkResult(
             query=test.query,
@@ -139,6 +159,9 @@ def run_upa_test(
             security_violations=violations,
             execution_error=exec_error,
             timing_ms=timing,
+            self_heal_attempts=self_heal_attempts,
+            self_heal_errors=self_heal_errors,
+            security_retry_count=security_retry_count,
             expected_contains=test.expect_contains,
             expected_pattern=test.expect_pattern,
             expected_numeric=test.expect_numeric,
@@ -213,7 +236,7 @@ def run_hybrid_test(
     enable_llm_validation: bool = True
 ) -> tuple[HybridResult, TestDetails]:
     """Run a single semantic-logic hybrid test."""
-    cmd = ["uv", "run", "python", "upa.py", "--timing", test.query]
+    cmd = ["uv", "run", "python", "upa.py", "--timing", "--json-output", test.query]
 
     start_time = time.perf_counter()
     from datetime import datetime
@@ -238,6 +261,25 @@ def run_hybrid_test(
 
         # Extract generated code
         generated_code = extract_code_from_stderr(stderr)
+
+        # Parse JSON output for enhanced data
+        self_heal_attempts = 0
+        self_heal_errors = []
+        security_retry_count = 0
+        security_violations = []
+
+        json_match = re.search(r"__UPA_JSON__(.+)$", stderr, re.MULTILINE | re.DOTALL)
+        if json_match:
+            try:
+                import json
+                json_data = json.loads(json_match.group(1))
+                generated_code = json_data.get("generated_code", generated_code)
+                self_heal_attempts = json_data.get("self_heal_attempts", 0)
+                self_heal_errors = json_data.get("self_heal_errors", [])
+                security_retry_count = json_data.get("security_retry_count", 0)
+                security_violations = json_data.get("security_violations", [])
+            except (json.JSONDecodeError, ValueError):
+                pass
 
         # Evaluate result
         success = result.returncode == 0
@@ -303,6 +345,10 @@ def run_hybrid_test(
             timing_ms=timing,
             sub_agent_calls=sub_calls,
             sub_agent_depths=sub_depths,
+            self_heal_attempts=self_heal_attempts,
+            self_heal_errors=self_heal_errors,
+            security_retry_count=security_retry_count,
+            security_violations=security_violations,
             expected_contains=test.expected_contains,
             expected_pattern=test.expected_pattern,
             expected_numeric=test.expected_numeric,
