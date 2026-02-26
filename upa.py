@@ -7,6 +7,7 @@ Usage:
     uv run python upa.py "你的问题"
     uv run python upa.py --show-code "你的问题"
     uv run python upa.py --timing "你的问题"
+    uv run python upa.py --show-config  # Show current configuration
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ import argparse
 import ast
 import io
 import json
+import os
 import re
 import sys
 import time
@@ -29,7 +31,6 @@ from openai import OpenAI
 # Planner Module (Phase 5: Dynamic Prompt Construction)
 # =============================================================================
 
-from dataclasses import dataclass, field
 from typing import Any
 
 
@@ -490,8 +491,178 @@ class Timer:
 # Load environment variables
 load_dotenv()
 
-# Configuration from .env
-import os
+
+# =============================================================================
+# Centralized Configuration
+# =============================================================================
+
+# Provider registry - 所有支持的 provider 预设配置
+# 格式：provider_key: {name, url, default_model, api_key_prefix}
+PROVIDER_PRESETS: dict[str, dict[str, str]] = {
+    # 阿里云 DashScope (Qwen 系列)
+    "dashscope": {
+        "name": "DashScope (阿里云)",
+        "url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "default_model": "qwen-plus",
+        "api_key_prefix": "sk-",
+    },
+    # Cloudflare Gateway (Grok 系列)
+    "cloudflare": {
+        "name": "Cloudflare Gateway + Grok",
+        "url": "https://gateway.ai.cloudflare.com/v1/ACCOUNT_ID/gemini/compat",
+        "default_model": "grok/grok-4-1-fast-non-reasoning",
+        "api_key_prefix": "",  # Cloudflare 使用 bearer token
+    },
+    # OpenAI 原生
+    "openai": {
+        "name": "OpenAI",
+        "url": "https://api.openai.com/v1",
+        "default_model": "gpt-4o",
+        "api_key_prefix": "sk-",
+    },
+    # Anthropic (通过 OpenAI 兼容层，如 openrouter)
+    "anthropic": {
+        "name": "Anthropic (兼容层)",
+        "url": "https://api.anthropic.com/v1",
+        "default_model": "claude-sonnet-4-5-20251022",
+        "api_key_prefix": "sk-ant-",
+    },
+    # 自定义 provider (通过环境变量配置)
+    "custom": {
+        "name": "Custom Provider",
+        "url": "",  # 必须通过 CUSTOM_URL 配置
+        "default_model": "",  # 必须通过 CUSTOM_MODEL 配置
+        "api_key_prefix": "",
+    },
+}
+
+
+@dataclass
+class Config:
+    """Centralized configuration management."""
+    # Coder (main) provider
+    provider: str = "dashscope"
+    url: str = ""
+    api_key: str = ""
+    model: str = ""
+
+    # Planner provider and model (optional - defaults to coder)
+    planner_provider: str | None = None  # None = use same as coder
+    planner_model: str | None = None
+    planner_timeout: float = 5.0
+
+    # Sub-agent provider and model (optional - defaults to coder)
+    sub_agent_provider: str | None = None  # None = use same as coder
+    sub_agent_model: str | None = None
+    sub_agent_max_depth: int = 3
+    sub_agent_timeout: float = 60.0
+
+    # Feature flags
+    web_search_enabled: bool = True
+
+    # Retry settings
+    max_security_retries: int = 3
+    max_execution_retries: int = 3
+
+    @classmethod
+    def from_env(cls) -> "Config":
+        """Load configuration from environment variables."""
+        provider = os.getenv("UPA_PROVIDER", "dashscope")
+
+        # Build provider-specific env var names for coder
+        url_key = f"{provider.upper()}_URL"
+        key_key = f"{provider.upper()}_API_KEY"
+        model_key = f"{provider.upper()}_MODEL"
+
+        # Get defaults from presets if provider exists
+        preset = PROVIDER_PRESETS.get(provider, {})
+        default_url = preset.get("url", "")
+        default_model = preset.get("default_model", "")
+
+        # Get planner provider/model
+        planner_provider = os.getenv("UPA_PLANNER_PROVIDER", None)
+        planner_model = os.getenv("UPA_PLANNER_MODEL", None)
+
+        # Get sub-agent provider/model
+        sub_agent_provider = os.getenv("UPA_SUB_AGENT_PROVIDER", None)
+        sub_agent_model = os.getenv("UPA_SUB_AGENT_MODEL", None)
+
+        return cls(
+            # Coder config
+            provider=provider,
+            url=os.getenv(url_key, default_url),
+            api_key=os.getenv(key_key, ""),
+            model=os.getenv(model_key, default_model),
+            # Planner config
+            planner_provider=planner_provider,
+            planner_model=planner_model,
+            planner_timeout=float(os.getenv("UPA_PLANNER_TIMEOUT", "5.0")),
+            # Sub-agent config
+            sub_agent_provider=sub_agent_provider,
+            sub_agent_model=sub_agent_model,
+            sub_agent_max_depth=int(os.getenv("UPA_SUB_AGENT_DEPTH", "3")),
+            sub_agent_timeout=float(os.getenv("UPA_SUB_AGENT_TIMEOUT", "60.0")),
+            web_search_enabled=os.getenv("UPA_WEB_SEARCH", "true").lower() == "true",
+            max_security_retries=int(os.getenv("UPA_MAX_SECURITY_RETRIES", "3")),
+            max_execution_retries=int(os.getenv("UPA_MAX_EXECUTION_RETRIES", "3")),
+        )
+
+    def validate(self) -> list[str]:
+        """
+        Validate configuration and return list of errors.
+        Returns empty list if configuration is valid.
+        """
+        errors = []
+        if not self.api_key:
+            errors.append(f"{self.provider.upper()}_API_KEY is required but not set")
+        if not self.url:
+            errors.append(f"{self.provider.upper()}_URL is required but not set")
+        if not self.model:
+            errors.append(f"{self.provider.upper()}_MODEL is required but not set")
+        return errors
+
+    def show(self) -> str:
+        """Return a formatted string showing current configuration."""
+        lines = [
+            "UPA Configuration:",
+            "─" * 50,
+            f"  Provider:          {self.provider}",
+            f"  URL:               {self.url[:50]}..." if len(self.url) > 50 else f"  URL:               {self.url}",
+            f"  API Key:           {'*' * 8}{'' if len(self.api_key) <= 8 else '...'} ({len(self.api_key)} chars)",
+            f"  Model:             {self.model}",
+            "",
+            "  Planner:",
+            f"    Provider:        {self.planner_provider or '(same as coder)'}",
+            f"    Model:           {self.planner_model or '(same as coder)'}",
+            f"    Timeout:         {self.planner_timeout}s",
+            "",
+            "  Sub-Agent:",
+            f"    Provider:        {self.sub_agent_provider or '(same as coder)'}",
+            f"    Model:           {self.sub_agent_model or '(same as coder)'}",
+            f"    Max Depth:       {self.sub_agent_max_depth}",
+            f"    Timeout:         {self.sub_agent_timeout}s",
+            "",
+            "  Features:",
+            f"    Web Search:      {self.web_search_enabled}",
+            "",
+            "  Retry Settings:",
+            f"    Max Security:    {self.max_security_retries}",
+            f"    Max Execution:   {self.max_execution_retries}",
+        ]
+        return "\n".join(lines)
+
+
+# Global configuration instance (loaded once at startup)
+CONFIG: Config | None = None
+
+
+def get_config() -> Config:
+    """Get the global configuration instance."""
+    global CONFIG
+    if CONFIG is None:
+        CONFIG = Config.from_env()
+    return CONFIG
+
 
 # =============================================================================
 # Sub-Agent Context (for recursive calls)
@@ -534,9 +705,6 @@ class SubAgentContext:
         """Disable sub-agent calls (for security)."""
         cls._enabled = False
 
-DASHSCOPE_URL = os.getenv("DASHSCOPE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
-DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY", "")
-DASHSCOPE_MODEL = os.getenv("DASHSCOPE_MODEL", "qwen-plus")
 
 # =============================================================================
 # Provider Configuration
@@ -550,32 +718,53 @@ class ProviderConfig:
     api_key: str
     model: str
 
-# Predefined providers
-PROVIDERS = {
-    "dashscope": ProviderConfig(
-        name="DashScope (阿里云)",
-        url=DASHSCOPE_URL,
-        api_key=DASHSCOPE_API_KEY,
-        model=DASHSCOPE_MODEL,
-    ),
-    "cloudflare": ProviderConfig(
-        name="Cloudflare Gateway + Grok",
-        url=os.getenv("CLOUDFLARE_URL", "https://gateway.ai.cloudflare.com/v1/632ba9b9506a87e7fe1d5f7e7db78d57/gemini/compat"),
-        api_key=os.getenv("CLOUDFLARE_API_KEY", ""),
-        model=os.getenv("CLOUDFLARE_MODEL", "grok/grok-4-1-fast-non-reasoning"),
-    ),
-}
+
+def _build_providers_from_presets() -> dict[str, ProviderConfig]:
+    """Build PROVIDERS dict from PROVIDER_PRESETS."""
+    providers = {}
+    for key, preset in PROVIDER_PRESETS.items():
+        providers[key] = ProviderConfig(
+            name=preset.get("name", key),
+            url=preset.get("url", ""),
+            api_key="",  # API key always from env
+            model=preset.get("default_model", ""),
+        )
+    return providers
+
+
+# Predefined providers (from presets)
+PROVIDERS = _build_providers_from_presets()
 
 # Default provider (can be overridden by env var or CLI)
-DEFAULT_PROVIDER = os.getenv("UPA_PROVIDER", "cloudflare")
+DEFAULT_PROVIDER = os.getenv("UPA_PROVIDER", "dashscope")
 
 def get_provider(provider_name: str | None = None) -> ProviderConfig:
     """Get provider configuration by name."""
+    config = get_config()
+
     if provider_name is None:
-        provider_name = DEFAULT_PROVIDER
+        provider_name = config.provider
+
+    # If requested provider matches config provider, use loaded config values
+    if provider_name == config.provider:
+        return ProviderConfig(
+            name=config.provider,
+            url=config.url,
+            api_key=config.api_key,
+            model=config.model,
+        )
 
     if provider_name in PROVIDERS:
-        return PROVIDERS[provider_name]
+        # For predefined providers, load API key from env and merge with preset
+        preset = PROVIDER_PRESETS.get(provider_name, {})
+        env_key = os.getenv(f"{provider_name.upper()}_API_KEY", "")
+        env_model = os.getenv(f"{provider_name.upper()}_MODEL", preset.get("default_model", ""))
+        return ProviderConfig(
+            name=preset.get("name", provider_name),
+            url=preset.get("url", ""),
+            api_key=env_key,
+            model=env_model,
+        )
 
     # Try to load from environment with custom provider name
     env_url = os.getenv(f"{provider_name.upper()}_URL")
@@ -598,13 +787,21 @@ def list_providers() -> None:
     print("─" * 50)
     for key, provider in PROVIDERS.items():
         default = " (default)" if key == DEFAULT_PROVIDER else ""
+        preset = PROVIDER_PRESETS.get(key, {})
+        models = preset.get("default_model", provider.model)
         print(f"  {key:12} → {provider.name}{default}")
-        print(f"               Model: {provider.model}")
+        print(f"               Default Model: {models}")
+        print(f"               URL: {provider.url[:50]}...")
     print()
     print("Usage:")
     print(f"  upa.py --provider <name> \"your query\"")
     print(f"  upa.py --model <model> \"your query\"  # Override model")
     print(f"  upa.py --config <provider> <model>    # Set default")
+    print()
+    print("Environment Variables:")
+    print(f"  {DEFAULT_PROVIDER.upper()}_API_KEY  - API key for current provider")
+    print(f"  {DEFAULT_PROVIDER.upper()}_MODEL    - Model to use")
+    print(f"  {DEFAULT_PROVIDER.upper()}_URL      - API endpoint URL")
 
 def set_default_config(provider_name: str, model: str) -> None:
     """Update .env file with new default provider and model."""
@@ -657,9 +854,8 @@ def set_default_config(provider_name: str, model: str) -> None:
 # =============================================================================
 # Planner Configuration
 # =============================================================================
-PLANNER_ENABLED = os.getenv("UPA_PLANNER", "true").lower() == "true"
-PLANNER_MODEL = os.getenv("UPA_PLANNER_MODEL", None)  # None = use same model as coder
-PLANNER_TIMEOUT = 5.0  # seconds
+# Note: These are now loaded via Config.from_env() and accessed via get_config()
+# Constants below are kept for backward compatibility, loaded from Config at runtime
 
 # System Prompt: Always-Code (use static prompt from planner module for backward compatibility)
 SYSTEM_PROMPT = STATIC_CODER_PROMPT
@@ -686,13 +882,104 @@ ALLOWED_MODULES = {
     "unicodedata", "decimal", "fractions", "statistics", "copy",
 }
 
-# Retry configuration
-MAX_SECURITY_RETRIES = 3  # Max retries for security violations
-MAX_EXECUTION_RETRIES = 3  # Max retries for execution errors (self-healing)
 
-# Sub-Agent configuration
-MAX_SUB_AGENT_DEPTH = 3   # Max recursive depth for sub-agent calls
-SUB_AGENT_TIMEOUT = 60    # Timeout for sub-agent calls in seconds
+# =============================================================================
+# Configuration Property Accessors
+# =============================================================================
+# These functions provide backward compatibility by loading from Config
+
+def _get_planner_enabled() -> bool:
+    return get_config().planner_enabled
+
+def _get_planner_model() -> str | None:
+    return get_config().planner_model
+
+def _get_planner_timeout() -> float:
+    return get_config().planner_timeout
+
+def _get_web_search_enabled() -> bool:
+    return get_config().web_search_enabled
+
+def _get_max_sub_agent_depth() -> int:
+    return get_config().sub_agent_max_depth
+
+def _get_sub_agent_timeout() -> float:
+    return get_config().sub_agent_timeout
+
+def _get_max_security_retries() -> int:
+    return get_config().max_security_retries
+
+def _get_max_execution_retries() -> int:
+    return get_config().max_execution_retries
+
+# Module-level constants (loaded from Config at module import time)
+# These are evaluated once when the module loads, after Config is initialized
+PLANNER_ENABLED: bool = True  # Placeholder, will be updated below
+PLANNER_MODEL: str | None = None
+PLANNER_TIMEOUT: float = 5.0
+WEB_SEARCH_ENABLED: bool = True
+MAX_SUB_AGENT_DEPTH: int = 3
+SUB_AGENT_TIMEOUT: float = 60.0
+MAX_SECURITY_RETRIES: int = 3
+MAX_EXECUTION_RETRIES: int = 3
+
+
+def _init_constants():
+    """Initialize module-level constants from Config."""
+    global PLANNER_ENABLED, PLANNER_MODEL, PLANNER_TIMEOUT
+    global WEB_SEARCH_ENABLED, MAX_SUB_AGENT_DEPTH, SUB_AGENT_TIMEOUT
+    global MAX_SECURITY_RETRIES, MAX_EXECUTION_RETRIES
+
+    config = get_config()
+    PLANNER_ENABLED = True  # Always enabled, controlled by config
+    PLANNER_MODEL = config.planner_model
+    PLANNER_TIMEOUT = config.planner_timeout
+    WEB_SEARCH_ENABLED = config.web_search_enabled
+    MAX_SUB_AGENT_DEPTH = config.sub_agent_max_depth
+    SUB_AGENT_TIMEOUT = config.sub_agent_timeout
+    MAX_SECURITY_RETRIES = config.max_security_retries
+    MAX_EXECUTION_RETRIES = config.max_execution_retries
+
+
+# Initialize constants from Config
+_init_constants()
+
+
+def get_planner_provider_config() -> ProviderConfig:
+    """Get the provider configuration for planner."""
+    config = get_config()
+
+    # If planner has its own provider
+    if config.planner_provider:
+        return get_provider(config.planner_provider)
+
+    # Otherwise use coder's provider
+    return get_provider(config.provider)
+
+
+def get_sub_agent_provider_config() -> ProviderConfig:
+    """Get the provider configuration for sub-agent."""
+    config = get_config()
+
+    # If sub-agent has its own provider
+    if config.sub_agent_provider:
+        return get_provider(config.sub_agent_provider)
+
+    # Otherwise use coder's provider
+    return get_provider(config.provider)
+
+
+def get_sub_agent_model(coder_model: str) -> str:
+    """Get the model to use for sub-agent calls.
+
+    Args:
+        coder_model: The model used by the main coder
+
+    Returns:
+        The model name for sub-agent calls
+    """
+    config = get_config()
+    return config.sub_agent_model or coder_model
 
 
 class SecurityChecker(ast.NodeVisitor):
@@ -752,7 +1039,7 @@ def ask_sub_agent(query: str, client: OpenAI | None = None, model: str = None) -
     Args:
         query: The semantic query to process
         client: OpenAI client (will be created if not provided)
-        model: Model name to use
+        model: Model name to use (defaults to sub-agent model from config)
 
     Returns:
         The output string from executing the sub-agent's code
@@ -777,15 +1064,17 @@ def ask_sub_agent(query: str, client: OpenAI | None = None, model: str = None) -
     # Output sub-agent call info to stderr for tracking
     print(f"Sub-Agent Call (L{depth}): {query[:50]}...", file=sys.stderr)
 
-    # Get default model if not specified
+    # Get sub-agent model if not specified
     if model is None:
-        provider = get_provider()
-        model = provider.model
+        # Use sub-agent's provider config (may be different from coder)
+        sub_agent_config = get_sub_agent_provider_config()
+        model = get_sub_agent_model(sub_agent_config.model)
 
     try:
         # Create client if not provided
         if client is None:
-            client = create_client()
+            # Use sub-agent's provider config (may be different from coder)
+            client = create_client(get_sub_agent_provider_config())
 
         # Sub-agent system prompt (similar but indicates it's a sub-agent call)
         sub_prompt = f"""你是一个 Python 语义处理子程序（深度 {depth}/{MAX_SUB_AGENT_DEPTH}）。
@@ -948,11 +1237,15 @@ def ask_sub_agent(query: str, client: OpenAI | None = None, model: str = None) -
 # Web Search configuration
 WEB_SEARCH_TIMEOUT = 30    # Timeout for web search calls in seconds
 WEB_SEARCH_ENABLED = os.getenv("UPA_WEB_SEARCH", "true").lower() == "true"
+# Tavily API configuration (default key for testing)
+TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "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")
 
 
 def web_search(query: str, num_results: int = 5) -> str:
     """
     Web search function for fact-checking and information retrieval.
+    Uses Tavily Search API - optimized for AI agents.
+
     This function is injected into the sandbox for LLM-generated code to call.
 
     When network search fails, falls back to using LLM's internal knowledge.
@@ -978,56 +1271,72 @@ def web_search(query: str, num_results: int = 5) -> str:
         return "[Error: Web search disabled]"
 
     # Output search call info to stderr for tracking
-    print(f"Web Search: {query[:50]}...", file=sys.stderr)
+    print(f"Web Search (Tavily): {query[:50]}...", file=sys.stderr)
 
     try:
-        import urllib.parse
         import urllib.request
         import json
 
-        # Use DuckDuckGo Instant Answer API (free, no key required)
-        encoded_query = urllib.parse.quote(query)
-        url = f"https://api.duckduckgo.com/?q={encoded_query}&format=json"
+        # Use Tavily Search API
+        url = "https://api.tavily.com/search"
 
-        request = urllib.request.Request(url, headers={"User-Agent": "UPA/1.0"})
+        # Build request payload
+        payload = {
+            "api_key": TAVILY_API_KEY,
+            "query": query,
+            "search_depth": "basic",
+            "include_answer": True,
+            "max_results": num_results,
+        }
+
+        # Create request
+        data = json.dumps(payload).encode("utf-8")
+        request = urllib.request.Request(
+            url,
+            data=data,
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+
+        # Execute request
         with urllib.request.urlopen(request, timeout=WEB_SEARCH_TIMEOUT) as response:
-            data = json.loads(response.read().decode())
+            result = json.loads(response.read().decode())
 
-        # Extract relevant information from DDG response
+        # Extract and format results
         results = []
 
-        # Abstract (instant answer)
-        if data.get("Abstract"):
-            results.append(f"Summary: {data['Abstract']}")
+        # Include direct answer if available
+        if result.get("answer"):
+            results.append(f"Direct Answer: {result['answer']}")
 
-        # Related topics
-        if data.get("RelatedTopics"):
-            for topic in data["RelatedTopics"][:num_results]:
-                if isinstance(topic, dict) and "Text" in topic:
-                    results.append(f"- {topic['Text']}")
-
-        # Infobox (structured data)
-        if data.get("Infobox") and data["Infobox"].get("content"):
-            for item in data["Infobox"]["content"][:num_results]:
-                if isinstance(item, dict):
-                    label = item.get("label", "")
-                    value = item.get("value", "")
-                    if label and value:
-                        results.append(f"{label}: {value}")
+        # Include search results
+        if result.get("results"):
+            for r in result["results"][:num_results]:
+                title = r.get("title", "")
+                content = r.get("content", "")
+                url = r.get("url", "")
+                if content:
+                    if title:
+                        results.append(f"[{title}]({url}): {content}")
+                    else:
+                        results.append(f"{content}")
 
         if results:
-            return "\n".join(results[:num_results])
+            return "\n".join(results)
         else:
-            # Fallback: no results, try to get answer from heading
-            if data.get("Heading"):
-                return f"Topic: {data['Heading']}"
             return f"[No results found for: {query}]"
 
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            return f"[Tavily API: Invalid API key. Using internal knowledge to answer: {query}]"
+        elif e.code == 429:
+            return f"[Tavily API: Rate limit exceeded. Using internal knowledge to answer: {query}]"
+        else:
+            return f"[Tavily API Error: {e.code}. Using internal knowledge to answer: {query}]"
     except urllib.error.URLError as e:
-        # Network error - return helpful fallback message
-        return f"[Web search unavailable due to network error. Please use your internal knowledge to answer: {query}]"
+        return f"[Network error - using internal knowledge for: {query}]"
     except json.JSONDecodeError:
-        return f"[Error: Failed to parse search results]"
+        return f"[Error: Failed to parse search results for: {query}]"
     except Exception as e:
         return f"[Error: Web search failed - {str(e)}]"
 
@@ -1192,6 +1501,11 @@ def main():
         help="Show timing report after execution",
     )
     parser.add_argument(
+        "--show-config",
+        action="store_true",
+        help="Show current configuration and exit",
+    )
+    parser.add_argument(
         "--provider", "-p",
         choices=list(PROVIDERS.keys()),
         help=f"LLM provider to use (default: {DEFAULT_PROVIDER})",
@@ -1227,6 +1541,18 @@ def main():
     # Handle --config (set default provider and model)
     if args.config:
         set_default_config(args.config[0], args.config[1])
+        sys.exit(0)
+
+    # Handle --show-config
+    if args.show_config:
+        config = get_config()
+        print(config.show())
+        # Validate and show warnings if any
+        errors = config.validate()
+        if errors:
+            print("\n⚠ Configuration Warnings:")
+            for error in errors:
+                print(f"  - {error}")
         sys.exit(0)
 
     # Validate query is provided
@@ -1269,8 +1595,10 @@ def main():
             plan = create_default_plan(intent="simple_chat", skip_planning=True)
         else:
             timer.start("Planner Analysis")
+            # Get planner-specific model and client
             planner_model = PLANNER_MODEL or model  # Use planner-specific model or fall back to coder model
-            plan = run_planner(client, args.query, planner_model, timeout=PLANNER_TIMEOUT)
+            planner_client = create_client(get_planner_provider_config())
+            plan = run_planner(planner_client, args.query, planner_model, timeout=PLANNER_TIMEOUT)
             timer.stop()
 
             # Build dynamic system prompt based on plan
