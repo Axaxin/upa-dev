@@ -211,9 +211,60 @@ def list_providers() -> None:
     for key, provider in PROVIDERS.items():
         default = " (default)" if key == DEFAULT_PROVIDER else ""
         print(f"  {key:12} → {provider.name}{default}")
+        print(f"               Model: {provider.model}")
     print()
     print("Usage:")
     print(f"  upa.py --provider <name> \"your query\"")
+    print(f"  upa.py --model <model> \"your query\"  # Override model")
+    print(f"  upa.py --config <provider> <model>    # Set default")
+
+def set_default_config(provider_name: str, model: str) -> None:
+    """Update .env file with new default provider and model."""
+    # Validate provider
+    if provider_name not in PROVIDERS:
+        print(f"Error: Unknown provider '{provider_name}'. Available: {list(PROVIDERS.keys())}", file=sys.stderr)
+        sys.exit(1)
+
+    env_path = Path(".env")
+    env_example_path = Path(".env.example")
+
+    # Read existing .env or create from .env.example
+    if env_path.exists():
+        content = env_path.read_text()
+    elif env_example_path.exists():
+        content = env_example_path.read_text()
+        # Remove placeholder values
+        content = content.replace("your_", "").replace("_api_key_here", "").replace("_YOUR_ACCOUNT", "/632ba9b9506a87e7fe1d5f7e7db78d57")
+    else:
+        content = f"# UPA Configuration\nUPA_PROVIDER={provider_name}\n"
+
+    lines = content.splitlines()
+    updated_lines = []
+    config_updated = False
+
+    # Update or add UPA_PROVIDER
+    for line in lines:
+        if line.startswith("UPA_PROVIDER="):
+            updated_lines.append(f"UPA_PROVIDER={provider_name}")
+            config_updated = True
+        elif line.startswith(f"{provider_name.upper()}_MODEL="):
+            updated_lines.append(f"{provider_name.upper()}_MODEL={model}")
+            config_updated = True
+        else:
+            updated_lines.append(line)
+
+    # If not found, append to end
+    if not config_updated:
+        updated_lines.append(f"UPA_PROVIDER={provider_name}")
+        updated_lines.append(f"{provider_name.upper()}_MODEL={model}")
+
+    # Write back to .env
+    env_path.write_text("\n".join(updated_lines) + "\n")
+
+    print(f"✓ Default configuration updated:")
+    print(f"  Provider: {provider_name}")
+    print(f"  Model: {model}")
+    print(f"  Config file: {env_path.absolute()}")
 
 # System Prompt: Always-Code
 SYSTEM_PROMPT = """你是一个 Python 逻辑单元。你的回答必须仅包含一个 Python 代码块。
@@ -793,9 +844,19 @@ def main():
         help=f"LLM provider to use (default: {DEFAULT_PROVIDER})",
     )
     parser.add_argument(
+        "--model", "-m",
+        help="Override the default model for the selected provider",
+    )
+    parser.add_argument(
         "--list-providers",
         action="store_true",
         help="List all available LLM providers",
+    )
+    parser.add_argument(
+        "--config",
+        nargs=2,
+        metavar=("PROVIDER", "MODEL"),
+        help="Set default provider and model (updates .env file). Example: --config dashscope qwen-plus",
     )
     parser.add_argument(
         "--json-output",
@@ -808,6 +869,11 @@ def main():
     # Handle --list-providers
     if args.list_providers:
         list_providers()
+        sys.exit(0)
+
+    # Handle --config (set default provider and model)
+    if args.config:
+        set_default_config(args.config[0], args.config[1])
         sys.exit(0)
 
     # Validate query is provided
@@ -831,7 +897,8 @@ def main():
 
     # Create client with selected provider
     client = create_client(provider)
-    model = provider.model
+    # Use --model argument if provided, otherwise use provider's default
+    model = args.model if args.model else provider.model
 
     # Show provider info
     print(f"Using: {provider.name} ({model})", file=sys.stderr)

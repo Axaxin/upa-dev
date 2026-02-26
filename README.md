@@ -16,6 +16,9 @@ UPA is an experimental AI agent architecture where the LLM always outputs Python
 # Install dependencies
 uv sync
 
+# Configure API keys (copy .env.example to .env and fill in your keys)
+cp .env.example .env
+
 # Run UPA
 uv run python upa.py "你的问题"
 
@@ -24,6 +27,12 @@ uv run python upa.py --timing "1+1等于几"
 
 # Show generated code
 uv run python upa.py --show-code "帮我排序: 3,1,4,1,5"
+
+# Use specific provider and model
+uv run python upa.py --provider dashscope --model qwen3.5-plus "你的问题"
+
+# Set default provider and model
+uv run python upa.py --config dashscope qwen3.5-plus
 ```
 
 ## Project Structure
@@ -37,12 +46,15 @@ upa-dev/
 │   ├── display.py      # Terminal display utilities
 │   └── suites/         # Test suite definitions
 │       ├── core_upa.py # Core UPA functionality tests
-│       └── semantic.py # Semantic-Logic hybrid tests
+│       ├── semantic.py # Semantic-Logic hybrid tests
+│       ├── classic.py  # Classic LLM benchmark problems
+│       └── mmlu.py     # MMLU academic knowledge tests
 ├── benchmark_upa.py    # Legacy: Performance benchmark (deprecated)
 ├── benchmark_semantic.py # Legacy: Semantic benchmark (deprecated)
 ├── DESIGN.md           # Architecture design document
 ├── CLAUDE.md           # Project guidance for Claude Code
-└── .env                # API configuration (DashScope)
+├── .env.example        # Configuration template
+└── .env                # API configuration (not in git)
 ```
 
 ## Implementation Status
@@ -64,6 +76,11 @@ upa-dev/
 - [x] Sub-agent self-healing (recursive error recovery)
 - [x] `@safe_sub_agent` decorator for simplified syntax
 
+### ✅ Phase 4: CLI Enhancements (Complete)
+- [x] `--model` flag to override provider's default model
+- [x] `--config` flag to set default provider and model
+- [x] `.env.example` template for easy configuration
+
 ## Usage Examples
 
 ```bash
@@ -82,6 +99,18 @@ uv run python upa.py "帮我排序这些数字: 3,1,4,1,5"
 # DateTime
 uv run python upa.py "今天是星期几"
 # > Tuesday
+
+# Use specific provider
+uv run python upa.py --provider dashscope "你好"
+
+# Override model for a request
+uv run python upa.py --provider cloudflare --model grok-4 "你好"
+
+# Set default provider and model (updates .env)
+uv run python upa.py --config dashscope qwen3.5-plus
+
+# List all providers with their models
+uv run python upa.py --list-providers
 
 # With timing
 uv run python upa.py --timing "计算 100 的阶乘"
@@ -127,12 +156,47 @@ uv run python -m benchmarks semantic --save-details semantic-details.json
 
 ## Configuration
 
+### Quick Setup
+
+```bash
+# Copy the example configuration
+cp .env.example .env
+
+# Edit .env and fill in your API keys
+# Then run
+uv run python upa.py "你好"
+```
+
+### CLI Configuration
+
+```bash
+# Set default provider and model permanently
+uv run python upa.py --config <provider> <model>
+
+# Example: Set DashScope as default
+uv run python upa.py --config dashscope qwen3.5-plus
+```
+
+### Environment Variables
+
 Edit `.env` file:
 
 ```bash
-DASHSCOPE_URL=https://coding.dashscope.aliyuncs.com/v1
+# Default provider
+UPA_PROVIDER=cloudflare
+
+# Web Search (enables fact-checking via DuckDuckGo)
+UPA_WEB_SEARCH=true
+
+# DashScope Configuration
+DASHSCOPE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 DASHSCOPE_API_KEY=your-api-key
 DASHSCOPE_MODEL=qwen3.5-plus
+
+# Cloudflare Gateway + Grok Configuration
+CLOUDFLARE_URL=https://gateway.ai.cloudflare.com/v1/YOUR_ACCOUNT/gemini/compat
+CLOUDFLARE_API_KEY=your-api-key
+CLOUDFLARE_MODEL=grok/grok-4-1-fast-non-reasoning
 ```
 
 ## Security
@@ -152,21 +216,39 @@ User Query → Main LLM → Python Code → AST Check → Execute → stdout
                               ask_sub_agent() → Sub LLM → Code → Execute → stdout
                                                             ↓ (error)
                                                        Sub Self-Heal Loop
+                                      ↓ (fact-checking)
+                              web_search() → DuckDuckGo → Results
 ```
 
 **Key Features**:
 - **Always-Code**: All outputs are executable Python code
 - **Recursive Self-Healing**: Both main and sub-agents auto-repair on errors
 - **Decorator Pattern**: `@safe_sub_agent("query")` simplifies semantic calls
+- **Multi-Provider**: Support for DashScope (Qwen/Kimi), Cloudflare (Grok), and more
+- **Flexible CLI**: `--model` and `--config` for easy provider/model management
 
 ## Benchmark Results
 
+### UPA Core Tests
+
 | Complexity | Tests | Pass Rate | Avg Time |
 |------------|-------|-----------|----------|
-| Simple     | 5     | 100%      | ~9s      |
-| Medium     | 8     | 100%      | ~26s     |
-| Complex    | 7     | 100%      | ~20s     |
-| Edge Cases | 5     | 100%      | ~41s     |
+| Simple     | 5     | 100%      | ~1.6s    |
+| Medium     | 8     | 100%      | ~2.3s    |
+| Complex    | 7     | 100%      | ~2.4s    |
+
+### MMLU (Academic Knowledge)
+
+| Tests | Pass Rate | Avg Time |
+|-------|-----------|----------|
+| 30    | 100%      | ~1.8s    |
+
+### Test Suites
+
+- **core**: 43 tests - Core UPA functionality
+- **semantic**: 17 tests - Sub-agent integration
+- **classic**: 23 tests - GSM8K, HumanEval, MATH
+- **mmlu**: 147 tests - Academic knowledge across STEM, humanities, social sciences
 
 ## License
 
