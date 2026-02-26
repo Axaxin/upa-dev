@@ -125,6 +125,37 @@ def print_report_core(results: list[tuple[TestCase, BenchmarkResult, dict[Qualit
             print(f"    Min:    {min(planner_times):.0f}ms")
             print(f"    Max:    {max(planner_times):.0f}ms")
 
+        # Planner Validation Statistics (for planner suite)
+        validation_results = [d.planner_validation for _, _, _, d in results if d.planner_validation]
+        if validation_results:
+            print(f"\n  {Colors.BOLD}🔍 Planner Validation Results{Colors.ENDC}")
+            # Intent accuracy
+            intent_correct = sum(1 for v in validation_results if v.get('intent_correct'))
+            intent_total = sum(1 for v in validation_results if 'intent_correct' in v)
+            if intent_total > 0:
+                intent_color = Colors.OKGREEN if intent_correct == intent_total else Colors.FAIL
+                print(f"  Intent Accuracy:  {intent_color}{intent_correct}/{intent_total} ({intent_correct/intent_total*100:.1f}%){Colors.ENDC}")
+
+            # Tools accuracy
+            tools_correct = sum(1 for v in validation_results if v.get('tools_correct'))
+            tools_total = sum(1 for v in validation_results if 'tools_correct' in v)
+            if tools_total > 0:
+                tools_color = Colors.OKGREEN if tools_correct == tools_total else Colors.FAIL
+                print(f"  Tools Accuracy:   {tools_color}{tools_correct}/{tools_total} ({tools_correct/tools_total*100:.1f}%){Colors.ENDC}")
+
+            # Skip accuracy
+            skip_correct = sum(1 for v in validation_results if v.get('skip_correct'))
+            skip_total = sum(1 for v in validation_results if 'skip_correct' in v)
+            if skip_total > 0:
+                skip_color = Colors.OKGREEN if skip_correct == skip_total else Colors.FAIL
+                print(f"  Skip Accuracy:    {skip_color}{skip_correct}/{skip_total} ({skip_correct/skip_total*100:.1f}%){Colors.ENDC}")
+
+            # Overall accuracy
+            all_correct = sum(1 for v in validation_results if v.get('all_correct'))
+            if validation_results:
+                overall_color = Colors.OKGREEN if all_correct == len(validation_results) else Colors.FAIL
+                print(f"  Overall Accuracy: {overall_color}{all_correct}/{len(validation_results)} ({all_correct/len(validation_results)*100:.1f}%){Colors.ENDC}")
+
     # Detail Table
     print(f"\n  {Colors.BOLD}📋 Detailed Results{Colors.ENDC}")
     print(f"  {'Test':<18} {'Complexity':<10} {'Time':>10} {'Status':<8} {'Quality'}")
@@ -321,7 +352,7 @@ Examples:
     # Run the appropriate benchmark
     enable_llm_validation = not args.no_llm_validation
 
-    if args.suite in ("core", "classic", "mmlu"):
+    if args.suite in ("core", "classic", "mmlu", "planner"):
         filter_comp = Complexity(args.complexity) if args.complexity else None
         results = run_core_benchmark(
             cases=suite.cases,

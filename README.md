@@ -39,8 +39,7 @@ uv run python upa.py --config dashscope qwen3.5-plus
 
 ```
 upa-dev/
-├── upa.py              # Main CLI implementation (MVP)
-├── planner.py          # Phase 5: Dynamic prompt construction
+├── upa.py              # Main CLI implementation (MVP + Planner)
 ├── benchmarks/         # Unified benchmark framework
 │   ├── cli.py          # Benchmark CLI entry point
 │   ├── runner.py       # Core execution engine
@@ -50,9 +49,13 @@ upa-dev/
 │       ├── core_upa.py # Core UPA functionality tests (43 tests)
 │       ├── semantic.py # Semantic-Logic hybrid tests (17 tests)
 │       ├── classic.py  # Classic LLM benchmark problems (23 tests)
-│       └── mmlu.py     # MMLU academic knowledge tests (147 tests)
-├── benchmark_upa.py    # Legacy: Performance benchmark (deprecated)
-├── benchmark_semantic.py # Legacy: Semantic benchmark (deprecated)
+│       ├── mmlu.py     # MMLU academic knowledge tests (147 tests)
+│       └── planner.py  # Planner validation tests (18 tests)
+├── tests/              # Unit tests for framework
+│   ├── test_planner.py # Planner module unit tests
+│   └── test_runner.py  # Benchmark runner unit tests
+├── benchmark_upa.py    # DEPRECATED: Use -m benchmarks core
+├── benchmark_semantic.py # DEPRECATED: Use -m benchmarks semantic
 ├── DESIGN.md           # Architecture design document
 ├── CLAUDE.md           # Project guidance for Claude Code
 ├── .env.example        # Configuration template
@@ -89,6 +92,7 @@ upa-dev/
 - [x] Intent classification (simple_chat, computation, semantic, hybrid, multi_step)
 - [x] Dynamic tool selection (ask_sub_agent, web_search)
 - [x] Benchmark framework integration with Planner tracking
+- [x] Planner validation test suite with automated accuracy reporting
 
 ### 🚧 Phase 6: Code Memory (Planned)
 - [ ] Code caching with vector similarity matching
@@ -180,6 +184,12 @@ uv run python -m benchmarks semantic --save-details semantic-details.json
 
 # Disable LLM validation for failed tests
 uv run python -m benchmarks core --no-llm-validation
+
+# Run Planner validation tests (Phase 5)
+uv run python -m benchmarks planner
+
+# Run framework unit tests
+uv run pytest tests/ -v
 ```
 
 ## Configuration

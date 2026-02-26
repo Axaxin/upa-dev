@@ -8,3 +8,8 @@ dependencies = [
     "openai>=2.24.0",
     "python-dotenv>=1.2.1",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]

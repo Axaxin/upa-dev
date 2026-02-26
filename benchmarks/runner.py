@@ -221,6 +221,10 @@ def run_upa_test(
         # Add validation metadata to details
         details.llm_validated = llm_validated
 
+        # Planner validation (for planner suite)
+        if hasattr(test, 'expect_planner_intent') or hasattr(test, 'expect_planner_tools') or hasattr(test, 'expect_planner_skip'):
+            details.planner_validation = _validate_planner(test, planner_intent, planner_required_tools, planner_skip_planning)
+
         return test, benchmark_result, metrics, details
 
     except subprocess.TimeoutExpired:
@@ -680,3 +684,38 @@ def _evaluate_quality(test: TestCase, result: BenchmarkResult) -> dict[QualityMe
     metrics[QualityMetric.NO_EXTRA_TEXT] = len(result.output) < 500 or result.success
 
     return metrics
+
+
+def _validate_planner(test: TestCase, intent: str | None, tools: list[str], skip_planning: bool) -> dict[str, bool]:
+    """Validate Planner decisions against test expectations.
+
+    Returns:
+        dict with validation results for each planner field
+    """
+    validation = {}
+
+    # Validate intent
+    if hasattr(test, 'expect_planner_intent') and test.expect_planner_intent:
+        validation['intent_correct'] = (intent == test.expect_planner_intent)
+        validation['intent_expected'] = test.expect_planner_intent
+        validation['intent_actual'] = intent
+
+    # Validate tools
+    if hasattr(test, 'expect_planner_tools') and test.expect_planner_tools:
+        # Check if all expected tools are present
+        tools_set = set(tools) if tools else set()
+        expected_set = set(test.expect_planner_tools)
+        validation['tools_correct'] = (tools_set == expected_set)
+        validation['tools_expected'] = test.expect_planner_tools
+        validation['tools_actual'] = tools
+
+    # Validate skip_planning
+    if hasattr(test, 'expect_planner_skip') and test.expect_planner_skip is not None:
+        validation['skip_correct'] = (skip_planning == test.expect_planner_skip)
+        validation['skip_expected'] = test.expect_planner_skip
+        validation['skip_actual'] = skip_planning
+
+    # Overall planner validation passes if all checks pass
+    validation['all_correct'] = all(v for k, v in validation.items() if k.endswith('_correct'))
+
+    return validation

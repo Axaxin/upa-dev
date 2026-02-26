@@ -43,6 +43,10 @@ class TestCase:
     expect_pattern: str | None = None
     expect_numeric: tuple[float, float] | None = None
     description: str = ""
+    # Planner validation fields (for planner suite)
+    expect_planner_intent: str | None = None
+    expect_planner_tools: list[str] | None = None
+    expect_planner_skip: bool | None = None
 
 
 @dataclass
@@ -131,6 +135,9 @@ class TestDetails:
     planner_skip_planning: bool = True
     planner_timing_ms: float = 0.0
 
+    # Planner validation results
+    planner_validation: dict[str, bool] = field(default_factory=dict)
+
     def to_dict(self) -> dict:
         """Convert to JSON-serializable dict."""
         return {
@@ -213,7 +220,7 @@ def get_registered_suites() -> dict[str, TestSuite]:
     """Get all registered test suites."""
     import benchmarks.suites as suites_module
     # Ensure all suite modules are imported
-    from benchmarks.suites import core_upa, semantic, classic, mmlu
+    from benchmarks.suites import core_upa, semantic, classic, mmlu, planner
     return getattr(suites_module, "_registered_suites", {})
 
 

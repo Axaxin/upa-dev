@@ -19,6 +19,9 @@ from .base import (
 # Import suites to register them
 from . import core_upa
 from . import semantic
+from . import classic
+from . import mmlu
+from . import planner
 
 __all__ = [
     "TestCase",
