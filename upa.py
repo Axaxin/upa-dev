@@ -22,6 +22,16 @@ from pathlib import Path
 from dotenv import load_dotenv
 from openai import OpenAI
 
+# Import planner module
+from planner import (
+    Plan,
+    run_planner,
+    build_coder_prompt,
+    is_trivial_query,
+    create_default_plan,
+    STATIC_CODER_PROMPT,
+)
+
 
 # =============================================================================
 # Timing Infrastructure
@@ -266,58 +276,15 @@ def set_default_config(provider_name: str, model: str) -> None:
     print(f"  Model: {model}")
     print(f"  Config file: {env_path.absolute()}")
 
-# System Prompt: Always-Code
-SYSTEM_PROMPT = """你是一个 Python 逻辑单元。你的回答必须仅包含一个 Python 代码块。
+# =============================================================================
+# Planner Configuration
+# =============================================================================
+PLANNER_ENABLED = os.getenv("UPA_PLANNER", "true").lower() == "true"
+PLANNER_MODEL = os.getenv("UPA_PLANNER_MODEL", None)  # None = use same model as coder
+PLANNER_TIMEOUT = 5.0  # seconds
 
-规则：
-1. 所有输出都必须通过 print() 语句输出
-2. 闲聊场景：生成 print("回复内容")
-3. 计算场景：生成计算逻辑并 print 结果
-4. 数据处理：可以使用 datetime, json, re, math 等标准库
-
-可用的特殊函数：
-- ask_sub_agent(query: str) -> str: 用于处理语义理解、翻译、总结等需要 AI 的任务。
-  调用后会返回处理结果的字符串。内部有自愈机制，执行失败时会自动修复。
-  示例: result = ask_sub_agent("请总结这段文本的主旨")
-
-- web_search(query: str, num_results: int = 5) -> str: 用于网络搜索获取实时信息和事实。
-  调用后会返回搜索结果的字符串。适用于需要查资料的问题。
-  示例: info = web_search("AIDA 营销模型的组成")
-
-- safe_sub_agent(query): 装饰器，简化 ask_sub_agent 调用的语法糖。
-  装饰的函数会自动接收子代理结果作为第一个参数。
-
-  使用方式 1 - 装饰空函数:
-  ```python
-@safe_sub_agent("将 'Hello' 翻译成中文")
-def translation(result):
-    print(result)
-
-translation()
-```
-
-  使用方式 2 - 装饰带参数的函数:
-  ```python
-@safe_sub_agent("总结文字")
-def summarize(text, result):
-    print(f"原文: {text}")
-    print(f"摘要: {result}")
-
-summarize("长文本...")
-```
-
-使用场景：
-- 纯逻辑/计算任务：直接用 Python 代码
-- 需要语义理解/翻译/总结：使用 @safe_sub_agent 或 ask_sub_agent()
-- 需要查资料/事实信息：使用 web_search()
-- 混合任务：先获取信息（搜索或子代理），再做逻辑处理
-
-重要：
-- ask_sub_agent 内部有自愈机制，执行失败会自动修复（最多3次）
-- web_search 可获取网络信息，用于回答需要最新知识或具体事实的问题
-- @safe_sub_agent 只是语法糖，让代码更简洁
-- 不要输出任何代码块之外的文字
-- 只输出 ```python ... ``` 格式的代码"""
+# System Prompt: Always-Code (use static prompt from planner module for backward compatibility)
+SYSTEM_PROMPT = STATIC_CODER_PROMPT
 
 # Security: Blocked modules and functions
 BLOCKED_MODULES = {
@@ -697,7 +664,14 @@ def create_client(provider: ProviderConfig | None = None) -> OpenAI:
     )
 
 
-def generate_code(client: OpenAI, query: str, model: str, error_feedback: str | None = None, conversation_history: list | None = None) -> tuple[str, list]:
+def generate_code(
+    client: OpenAI,
+    query: str,
+    model: str,
+    error_feedback: str | None = None,
+    conversation_history: list | None = None,
+    system_prompt: str | None = None,
+) -> tuple[str, list]:
     """
     Call LLM to generate Python code for the query.
 
@@ -707,6 +681,7 @@ def generate_code(client: OpenAI, query: str, model: str, error_feedback: str | 
         model: Model name to use
         error_feedback: Optional error message from previous attempt
         conversation_history: Previous messages for retry context
+        system_prompt: Optional custom system prompt (defaults to SYSTEM_PROMPT)
 
     Returns:
         (response_content, updated_conversation_history)
@@ -714,7 +689,7 @@ def generate_code(client: OpenAI, query: str, model: str, error_feedback: str | 
     # Build message list
     if conversation_history is None:
         messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt or SYSTEM_PROMPT},
         ]
     else:
         messages = conversation_history
@@ -904,6 +879,26 @@ def main():
     print(f"Using: {provider.name} ({model})", file=sys.stderr)
 
     # ==========================================================================
+    # Phase 0: Planner Analysis (Dynamic Prompt Construction)
+    # ==========================================================================
+    plan: Plan | None = None
+    system_prompt = SYSTEM_PROMPT  # Default to static prompt
+
+    if PLANNER_ENABLED:
+        # Quick bypass for trivial queries
+        if is_trivial_query(args.query):
+            print("Planner: Trivial query detected, using static prompt", file=sys.stderr)
+            plan = create_default_plan(intent="simple_chat", skip_planning=True)
+        else:
+            timer.start("Planner Analysis")
+            planner_model = PLANNER_MODEL or model  # Use planner-specific model or fall back to coder model
+            plan = run_planner(client, args.query, planner_model, timeout=PLANNER_TIMEOUT)
+            timer.stop()
+
+            # Build dynamic system prompt based on plan
+            system_prompt = build_coder_prompt(plan)
+
+    # ==========================================================================
     # Phase 1: Code Generation with Security Retry Loop
     # ==========================================================================
     print("Thinking...", file=sys.stderr)
@@ -932,7 +927,8 @@ def main():
             args.query,
             model,
             error_feedback=error_feedback,
-            conversation_history=conversation_history
+            conversation_history=conversation_history,
+            system_prompt=system_prompt,  # Use dynamic prompt from planner
         )
         llm_timer.stop()
 
@@ -1036,7 +1032,8 @@ def main():
                 args.query,
                 model,
                 error_feedback=error_feedback,
-                conversation_history=conversation_history
+                conversation_history=conversation_history,
+                system_prompt=system_prompt,  # Use same dynamic prompt for self-healing
             )
             llm_timer.stop()
 
