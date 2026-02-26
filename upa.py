@@ -759,9 +759,10 @@ def get_provider(provider_name: str | None = None) -> ProviderConfig:
         preset = PROVIDER_PRESETS.get(provider_name, {})
         env_key = os.getenv(f"{provider_name.upper()}_API_KEY", "")
         env_model = os.getenv(f"{provider_name.upper()}_MODEL", preset.get("default_model", ""))
+        env_url = os.getenv(f"{provider_name.upper()}_URL", preset.get("url", ""))
         return ProviderConfig(
             name=preset.get("name", provider_name),
-            url=preset.get("url", ""),
+            url=env_url,
             api_key=env_key,
             model=env_model,
         )
