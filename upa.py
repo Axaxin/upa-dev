@@ -94,8 +94,17 @@ TOOL_REGISTRY: dict[str, ToolDefinition] = {
         name="web_search",
         description="Search the web for real-time information",
         usage_doc="""- web_search(query: str, num_results: int = 5) -> str: 用于网络搜索获取实时信息和事实。
-  调用后会返回搜索结果的字符串。适用于需要查资料的问题。
-  示例: info = web_search("AIDA 营销模型的组成")""",
+  返回搜索结果的字符串（可能包含 JSON 格式的原始数据）。
+
+  【错误示例】（千万不要这样做）：
+    print(web_search("某个问题"))  # ❌ 会输出原始 JSON/调试信息
+
+  【正确示例】：
+    results_str = web_search("某个问题")
+    # 处理结果并只输出最终答案
+    print("答案...")
+
+  重要：解析处理后再输出最终答案，不要直接输出原始返回值！""",
         categories=["search", "fact-checking"],
         complexity_score=2,
     ),
@@ -331,28 +340,47 @@ def run_planner(
 # Base static prompt for fallback
 STATIC_CODER_PROMPT = """你是一个 Python 逻辑单元。你的回答必须仅包含一个 Python 代码块。
 
+【重要提示】以下函数已经预定义，直接调用即可，不要重新定义：
+- web_search(query, num_results=5) -> str: 网络搜索函数
+- ask_sub_agent(query) -> str: 子代理调用函数
+- safe_sub_agent(query): 装饰器
+
 规则：
 1. 所有输出都必须通过 print() 语句输出
-2. 闲聊场景：生成 print("回复内容")
-3. 计算场景：生成计算逻辑并 print 结果
-4. 数据处理：可以使用 datetime, json, re, math 等标准库
+2. 只输出最终答案，不要输出任何中间数据、原始结果或调试信息
+3. 【绝对不要重新定义 web_search、ask_sub_agent 等预定义函数】
+4. 【绝对不要直接 print(web_search(...)) 或 print(ask_sub_agent(...)) 的原始返回值】
+5. 闲聊场景：生成 print("回复内容")
+6. 计算场景：生成计算逻辑并 print 结果
+7. 数据处理：可以使用 datetime, json, re, math 等标准库
 
 可用的特殊函数：
 - ask_sub_agent(query: str) -> str: 用于处理语义理解、翻译、总结等需要 AI 的任务。
   调用后会返回处理结果的字符串。内部有自愈机制，执行失败时会自动修复。
-  示例: result = ask_sub_agent("请总结这段文本的主旨")
+  示例:
+    result = ask_sub_agent("请总结这段文本的主旨")
+    print(result)  # ✅ 正确：输出处理后的结果
 
 - web_search(query: str, num_results: int = 5) -> str: 用于网络搜索获取实时信息和事实。
-  调用后会返回搜索结果的字符串。适用于需要查资料的问题。
-  示例: info = web_search("AIDA 营销模型的组成")
+  返回搜索结果的字符串（可能包含 JSON 格式的原始数据）。
+
+  【错误示例】（千万不要这样做）：
+    print(web_search("石川澪 最新作品"))  # ❌ 会输出原始 JSON
+    def web_search(query): ...  # ❌ 不要重新定义这个函数！
+
+  【正确示例】：
+    results_str = web_search("石川澪 最新作品")
+    # 处理结果并只输出最终答案
+    print("石川澪最新作品列表：")
+    for item in results:
+        print(f"- {item['title']} ({item['date']})")  # ✅ 输出格式化后的答案
 
 - safe_sub_agent(query): 装饰器，简化 ask_sub_agent 调用的语法糖。
-  装饰的函数会自动接收子代理结果作为第一个参数。
 
 使用场景：
 - 纯逻辑/计算任务：直接用 Python 代码
 - 需要语义理解/翻译/总结：使用 @safe_sub_agent 或 ask_sub_agent()
-- 需要查资料/事实信息：使用 web_search()
+- 需要查资料/事实信息：使用 web_search()，记得解析后再输出答案
 - 混合任务：先获取信息（搜索或子代理），再做逻辑处理
 
 重要：
@@ -371,11 +399,19 @@ def build_coder_prompt(plan: Plan) -> str:
 
     base_prompt = """你是一个 Python 逻辑单元。你的回答必须仅包含一个 Python 代码块。
 
+【重要提示】以下函数已经预定义，直接调用即可，不要重新定义：
+- web_search(query, num_results=5) -> str: 网络搜索函数
+- ask_sub_agent(query) -> str: 子代理调用函数
+- safe_sub_agent(query): 装饰器
+
 规则：
 1. 所有输出都必须通过 print() 语句输出
-2. 闲聊场景：生成 print("回复内容")
-3. 计算场景：生成计算逻辑并 print 结果
-4. 数据处理：可以使用 datetime, json, re, math 等标准库
+2. 只输出最终答案，不要输出任何中间数据、原始结果或调试信息
+3. 【绝对不要重新定义 web_search、ask_sub_agent 等预定义函数】
+4. 【绝对不要直接 print(web_search(...)) 或 print(ask_sub_agent(...)) 的原始返回值】
+5. 闲聊场景：生成 print("回复内容")
+6. 计算场景：生成计算逻辑并 print 结果
+7. 数据处理：可以使用 datetime, json, re, math 等标准库
 """
 
     # Dynamically add tool documentation
@@ -406,6 +442,9 @@ def build_coder_prompt(plan: Plan) -> str:
 
     base_prompt += """
 重要：
+- ask_sub_agent 内部有自愈机制，执行失败会自动修复（最多3次）
+- web_search 可获取网络信息，用于回答需要最新知识或具体事实的问题
+- @safe_sub_agent 只是语法糖，让代码更简洁
 - 不要输出任何代码块之外的文字
 - 只输出 ```python ... ``` 格式的代码"""
 
@@ -1608,7 +1647,7 @@ def main():
     # ==========================================================================
     # Phase 1: Code Generation with Security Retry Loop
     # ==========================================================================
-    print("Thinking...", file=sys.stderr)
+    print("Thinking...", file=sys.stderr, end="", flush=True)
 
     # Use separate timers for nested operations
     llm_timer = Timer()
@@ -1684,6 +1723,9 @@ def main():
     timer.records.extend(llm_timer.records)
     timer.records.extend(code_extract_timer.records)
     timer.records.extend(security_timer.records)
+
+    # Clear the "Thinking..." status
+    print("\r\033[K", end="", file=sys.stderr, flush=True)
 
     # Show code if requested
     if args.show_code:
