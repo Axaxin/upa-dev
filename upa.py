@@ -1079,6 +1079,11 @@ def main():
     # JSON output for benchmarking
     if args.json_output:
         import json as json_module
+        # Extract planner info from stderr if available
+        planner_info = {}
+        planner_match = re.search(r'Planner: (intent=\w+, complexity=\w+, tools=[^,]+(?:,\s*\w+)*, steps=\d+, confidence=[\d.]+)', sys.stderr.getvalue() if hasattr(sys, '_stderr_content') else "")
+        # Alternative: check if we can access stderr content directly
+        # We'll use a different approach - write planner info to stderr before JSON output
         report = {
             "generated_code": final_code,
             "self_heal_attempts": self_heal_attempts,
@@ -1086,6 +1091,17 @@ def main():
             "security_violations": security_retry_data.get("violations", []),
             "security_retry_count": security_retry_data.get("retry_count", 0),
             "timing_ms": timer.to_dict(),
+            "planner": {
+                "enabled": PLANNER_ENABLED,
+                "intent": plan.intent if plan else None,
+                "complexity": plan.complexity if plan else None,
+                "required_tools": plan.required_tools if plan else [],
+                "relevant_modules": plan.relevant_modules if plan else [],
+                "steps_count": len(plan.steps) if plan else 0,
+                "confidence": plan.confidence if plan else None,
+                "skip_planning": plan.skip_planning if plan else True,
+                "timing_ms": timer.to_dict().get("Planner Analysis", 0),
+            } if plan and PLANNER_ENABLED else None,
         }
         # Output as a compact JSON line to stderr
         print(f"__UPA_JSON__{json_module.dumps(report)}", file=sys.stderr)

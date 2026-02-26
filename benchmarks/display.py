@@ -174,6 +174,21 @@ class StreamingDisplay:
 
         print(f"  {status}  {time_str}  {Colors.DIM}{preview}...{Colors.ENDC}")
 
+    def print_planner_info(self, planner_data: dict):
+        """Print Planner (Phase 5) information."""
+        if not planner_data or not planner_data.get("enabled"):
+            return
+
+        self.stop_spinner()
+        print(f"    {Colors.OKCYAN}🧠 Planner (Phase 5):{Colors.ENDC}")
+        print(f"       Intent: {planner_data.get('intent', 'N/A')}")
+        print(f"       Complexity: {planner_data.get('complexity', 'N/A')}")
+        print(f"       Tools: {', '.join(planner_data.get('required_tools', [])) or 'None'}")
+        print(f"       Steps: {planner_data.get('steps_count', 0)}")
+        print(f"       Confidence: {planner_data.get('confidence', 0):.2f}")
+        print(f"       Skip Planning: {planner_data.get('skip_planning', True)}")
+        print(f"       Timing: {planner_data.get('timing_ms', 0):.0f}ms")
+
     def _format_duration(self, ms: float) -> str:
         """Format duration with color."""
         if ms < 5000:

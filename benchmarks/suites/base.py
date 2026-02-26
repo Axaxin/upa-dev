@@ -120,6 +120,17 @@ class TestDetails:
     # Validation metadata
     llm_validated: bool = False
 
+    # Planner information (Phase 5)
+    planner_enabled: bool = False
+    planner_intent: str | None = None
+    planner_complexity: str | None = None
+    planner_required_tools: list[str] = field(default_factory=list)
+    planner_relevant_modules: list[str] = field(default_factory=list)
+    planner_steps_count: int = 0
+    planner_confidence: float | None = None
+    planner_skip_planning: bool = True
+    planner_timing_ms: float = 0.0
+
     def to_dict(self) -> dict:
         """Convert to JSON-serializable dict."""
         return {
@@ -147,6 +158,17 @@ class TestDetails:
             "expected_numeric": self.expected_numeric,
             "timestamp": self.timestamp,
             "llm_validated": self.llm_validated,
+            "planner": {
+                "enabled": self.planner_enabled,
+                "intent": self.planner_intent,
+                "complexity": self.planner_complexity,
+                "required_tools": self.planner_required_tools,
+                "relevant_modules": self.planner_relevant_modules,
+                "steps_count": self.planner_steps_count,
+                "confidence": self.planner_confidence,
+                "skip_planning": self.planner_skip_planning,
+                "timing_ms": self.planner_timing_ms,
+            },
         }
 
 

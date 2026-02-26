@@ -82,12 +82,55 @@ def print_report_core(results: list[tuple[TestCase, BenchmarkResult, dict[Qualit
         bar = format_bar(p, total, 20, bar_color)
         print(f"  {metric.value:12} {bar} {p:>2}/{total:<2} ({pct:>5.1f}%)")
 
+    # Planner Statistics (Phase 5)
+    planner_enabled_count = sum(1 for _, _, _, d in results if d.planner_enabled)
+    if planner_enabled_count > 0:
+        print(f"\n  {Colors.BOLD}🧠 Planner Statistics (Phase 5){Colors.ENDC}")
+        print(f"  Planner Enabled:  {planner_enabled_count}/{total} ({planner_enabled_count/total*100:.1f}%)")
+
+        # Intent distribution
+        intents = {}
+        for _, _, _, d in results:
+            if d.planner_intent:
+                intents[d.planner_intent] = intents.get(d.planner_intent, 0) + 1
+        if intents:
+            print(f"  Intent Distribution:")
+            for intent, count in sorted(intents.items(), key=lambda x: x[1], reverse=True):
+                bar_color = Colors.OKGREEN
+                bar = format_bar(count, total, 15, bar_color)
+                print(f"    {intent:15} {bar} {count:>2}/{total:<2}")
+
+        # Complexity distribution
+        complexities = {}
+        for _, _, _, d in results:
+            if d.planner_complexity:
+                complexities[d.planner_complexity] = complexities.get(d.planner_complexity, 0) + 1
+        if complexities:
+            print(f"  Complexity Distribution:")
+            for comp, count in sorted(complexities.items(), key=lambda x: x[1], reverse=True):
+                bar_color = Colors.OKGREEN
+                bar = format_bar(count, total, 15, bar_color)
+                print(f"    {comp:15} {bar} {count:>2}/{total:<2}")
+
+        # Skip planning count
+        skip_count = sum(1 for _, _, _, d in results if d.planner_skip_planning)
+        print(f"  Skip Planning:    {skip_count}/{total} ({skip_count/total*100:.1f}%)")
+
+        # Planner timing
+        planner_times = [d.planner_timing_ms for _, _, _, d in results if d.planner_timing_ms > 0]
+        if planner_times:
+            print(f"  Planner Timing:")
+            print(f"    Mean:   {mean(planner_times):.0f}ms")
+            print(f"    Median: {median(planner_times):.0f}ms")
+            print(f"    Min:    {min(planner_times):.0f}ms")
+            print(f"    Max:    {max(planner_times):.0f}ms")
+
     # Detail Table
     print(f"\n  {Colors.BOLD}📋 Detailed Results{Colors.ENDC}")
     print(f"  {'Test':<18} {'Complexity':<10} {'Time':>10} {'Status':<8} {'Quality'}")
     print(f"{'─' * 70}")
 
-    for test, result, metrics, _ in results:
+    for test, result, metrics, details in results:
         time_str = format_time(result.timing.get('total', 0))
         if metrics.get(QualityMetric.CORRECT_RESULT):
             status = f"{Colors.OKGREEN}✅ PASS{Colors.ENDC}"
@@ -104,7 +147,13 @@ def print_report_core(results: list[tuple[TestCase, BenchmarkResult, dict[Qualit
             Complexity.EDGE_CASE: f"{Colors.OKCYAN}边缘{Colors.ENDC}",
         }
 
-        print(f"  {test.name:<18} {comp_badges[test.complexity]:<10} {time_str:>20} {status}  {q_color}{q_score}/{len(metrics)}{Colors.ENDC}")
+        # Add planner indicator
+        planner_indicator = ""
+        if details.planner_enabled and details.planner_intent:
+            planner_short = details.planner_intent[:4] if details.planner_intent else "N/A"
+            planner_indicator = f" [{Colors.OKCYAN}{planner_short}{Colors.ENDC}]"
+
+        print(f"  {test.name:<18} {comp_badges[test.complexity]:<10} {time_str:>20} {status}  {q_color}{q_score}/{len(metrics)}{Colors.ENDC}{planner_indicator}")
         if result.execution_error:
             print(f"    └─ {Colors.WARNING}⚠️  {result.execution_error[:60]}{Colors.ENDC}")
 
@@ -350,6 +399,24 @@ Examples:
             with open(details_file, "w", encoding="utf-8") as f:
                 json.dump(details_data, f, ensure_ascii=False, indent=2)
             print(f"{Colors.OKGREEN}✓ Saved details to {details_file}{Colors.ENDC}")
+
+        # Planner Statistics for semantic tests
+        planner_enabled_count = sum(1 for _, d in results if d.planner_enabled)
+        if planner_enabled_count > 0:
+            print(f"\n{Colors.BOLD}🧠 Planner Statistics (Phase 5){Colors.ENDC}")
+            print(f"  Planner Enabled:  {planner_enabled_count}/{len(results)} ({planner_enabled_count/len(results)*100:.1f}%)")
+
+            # Intent distribution
+            intents = {}
+            for _, d in results:
+                if d.planner_intent:
+                    intents[d.planner_intent] = intents.get(d.planner_intent, 0) + 1
+            if intents:
+                print(f"  Intent Distribution:")
+                for intent, count in sorted(intents.items(), key=lambda x: x[1], reverse=True):
+                    bar_color = Colors.OKGREEN
+                    bar = format_bar(count, len(results), 15, bar_color)
+                    print(f"    {intent:15} {bar} {count:>2}/{len(results):<2}")
 
         if args.json:
             data = [{

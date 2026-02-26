@@ -111,18 +111,40 @@ sequenceDiagram
 
 ## 6. 开发实施路线 (Implementation)
 
-### 第一阶段：MVP 实现
-- 开发 `Base Orcherstrator`，强制 LLM 输出 Python。
-- 实现本地沙箱，通过 `io.StringIO` 捕获 `print` 输出。
-- **测试标准**：问“你好”和问“1+1”都能通过 `print` 输出正确结果。
+### ✅ Phase 1: MVP 实现 (已完成)
+- [x] 开发 `Base Orchestrator`，强制 LLM 输出 Python
+- [x] 实现本地沙箱，通过 `io.StringIO` 捕获 `print` 输出
+- [x] 实现 AST 安全防护，拦截危险库调用
+- [x] 测试标准：问”你好”和问”1+1”都能通过 `print` 输出正确结果
 
-### 第二阶段：语义集成
-- 注入 `ask_sub_agent` SDK。
-- 实现多级 LLM 调用：主模型写代码（复杂/昂贵），子模型在代码循环中处理语义（简单/便宜）。
+### ✅ Phase 2: 语义集成 (已完成)
+- [x] 注入 `ask_sub_agent` SDK
+- [x] 实现多级 LLM 调用：主模型写代码（复杂/昂贵），子模型在代码循环中处理语义（简单/便宜）
+- [x] 实现多 Provider 支持（DashScope、Cloudflare）
 
-### 第三阶段：代码记忆体
-- 引入 Redis/Postgres 存储成功代码。
-- 实现“报错修复”逻辑：`try-except` 捕获沙箱错误 -> 发送给 LLM 修复 -> 运行新代码并替换缓存。
+### ✅ Phase 3: 自愈机制 (已完成)
+- [x] 实现 `try-except` 捕获沙箱错误
+- [x] 自动反馈错误信息给 LLM 修复
+- [x] 子代理自愈（递归错误恢复）
+- [x] `@safe_sub_agent` 装饰器简化语法
+
+### ✅ Phase 4: CLI 增强 (已完成)
+- [x] `--model` 标志覆盖 Provider 的默认模型
+- [x] `--config` 标志设置默认 Provider 和模型
+- [x] `.env.example` 模板配置
+
+### ✅ Phase 5: Planner 架构 (已完成)
+- [x] 动态提示词构建系统 (`planner.py`)
+- [x] 查询分析器：识别任务意图和复杂度
+- [x] 意图分类：`simple_chat`, `computation`, `semantic`, `hybrid`, `multi_step`
+- [x] 动态工具选择：`ask_sub_agent`, `web_search`
+- [x] 任务分解：复杂问题分步骤执行
+- [x] 基准测试框架集成：Planner 追踪和统计
+
+### 🚧 Phase 6: 代码记忆体 (计划中)
+- [ ] 引入 Redis/Postgres 存储成功代码
+- [ ] 实现”报错修复”逻辑：`try-except` 捕获沙箱错误 -> 发送给 LLM 修复 -> 运行新代码并替换缓存
+- [ ] 向量匹配：检测当前任务是否与库中某个”成功特例”高度相似
 
 ---
 

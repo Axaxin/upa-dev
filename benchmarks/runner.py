@@ -118,6 +118,17 @@ def run_upa_test(
         self_heal_errors = []
         security_retry_count = 0
 
+        # Planner information (Phase 5)
+        planner_enabled = False
+        planner_intent = None
+        planner_complexity = None
+        planner_required_tools = []
+        planner_relevant_modules = []
+        planner_steps_count = 0
+        planner_confidence = None
+        planner_skip_planning = True
+        planner_timing_ms = 0.0
+
         json_match = re.search(r"__UPA_JSON__(.+)$", stderr, re.MULTILINE | re.DOTALL)
         if json_match:
             try:
@@ -130,6 +141,19 @@ def run_upa_test(
                 # Update violations from JSON if available
                 if json_data.get("security_violations"):
                     violations = json_data["security_violations"]
+
+                # Parse planner information
+                planner_data = json_data.get("planner")
+                if planner_data:
+                    planner_enabled = planner_data.get("enabled", False)
+                    planner_intent = planner_data.get("intent")
+                    planner_complexity = planner_data.get("complexity")
+                    planner_required_tools = planner_data.get("required_tools", [])
+                    planner_relevant_modules = planner_data.get("relevant_modules", [])
+                    planner_steps_count = planner_data.get("steps_count", 0)
+                    planner_confidence = planner_data.get("confidence")
+                    planner_skip_planning = planner_data.get("skip_planning", True)
+                    planner_timing_ms = planner_data.get("timing_ms", 0.0)
             except (json.JSONDecodeError, ValueError):
                 pass
 
@@ -145,6 +169,9 @@ def run_upa_test(
         )
 
         # Create detailed record
+        # Initialize llm_validated before use
+        llm_validated = False
+
         details = TestDetails(
             suite_name="core",
             test_name=test.name,
@@ -166,12 +193,21 @@ def run_upa_test(
             expected_pattern=test.expect_pattern,
             expected_numeric=test.expect_numeric,
             timestamp=timestamp,
+            llm_validated=llm_validated,
+            planner_enabled=planner_enabled,
+            planner_intent=planner_intent,
+            planner_complexity=planner_complexity,
+            planner_required_tools=planner_required_tools,
+            planner_relevant_modules=planner_relevant_modules,
+            planner_steps_count=planner_steps_count,
+            planner_confidence=planner_confidence,
+            planner_skip_planning=planner_skip_planning,
+            planner_timing_ms=planner_timing_ms,
         )
 
         metrics = _evaluate_quality(test, benchmark_result)
 
         # LLM-assisted validation for failed tests
-        llm_validated = False
         if enable_llm_validation and not metrics.get(QualityMetric.CORRECT_RESULT):
             # Only use LLM validation if the test has expectations
             if test.expect_contains or test.expect_pattern or test.expect_numeric:
@@ -268,6 +304,17 @@ def run_hybrid_test(
         security_retry_count = 0
         security_violations = []
 
+        # Planner information (Phase 5)
+        planner_enabled = False
+        planner_intent = None
+        planner_complexity = None
+        planner_required_tools = []
+        planner_relevant_modules = []
+        planner_steps_count = 0
+        planner_confidence = None
+        planner_skip_planning = True
+        planner_timing_ms = 0.0
+
         json_match = re.search(r"__UPA_JSON__(.+)$", stderr, re.MULTILINE | re.DOTALL)
         if json_match:
             try:
@@ -278,6 +325,19 @@ def run_hybrid_test(
                 self_heal_errors = json_data.get("self_heal_errors", [])
                 security_retry_count = json_data.get("security_retry_count", 0)
                 security_violations = json_data.get("security_violations", [])
+
+                # Parse planner information
+                planner_data = json_data.get("planner")
+                if planner_data:
+                    planner_enabled = planner_data.get("enabled", False)
+                    planner_intent = planner_data.get("intent")
+                    planner_complexity = planner_data.get("complexity")
+                    planner_required_tools = planner_data.get("required_tools", [])
+                    planner_relevant_modules = planner_data.get("relevant_modules", [])
+                    planner_steps_count = planner_data.get("steps_count", 0)
+                    planner_confidence = planner_data.get("confidence")
+                    planner_skip_planning = planner_data.get("skip_planning", True)
+                    planner_timing_ms = planner_data.get("timing_ms", 0.0)
             except (json.JSONDecodeError, ValueError):
                 pass
 
@@ -354,6 +414,15 @@ def run_hybrid_test(
             expected_numeric=test.expected_numeric,
             timestamp=timestamp,
             llm_validated=llm_validated,
+            planner_enabled=planner_enabled,
+            planner_intent=planner_intent,
+            planner_complexity=planner_complexity,
+            planner_required_tools=planner_required_tools,
+            planner_relevant_modules=planner_relevant_modules,
+            planner_steps_count=planner_steps_count,
+            planner_confidence=planner_confidence,
+            planner_skip_planning=planner_skip_planning,
+            planner_timing_ms=planner_timing_ms,
         )
 
         return hybrid_result, details
