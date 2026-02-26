@@ -141,10 +141,52 @@ sequenceDiagram
 - [x] 任务分解：复杂问题分步骤执行
 - [x] 基准测试框架集成：Planner 追踪和统计
 
-### 🚧 Phase 6: 代码记忆体 (计划中)
+### 🚧 Phase 6: 复杂度感知 Coder 选择 (计划中)
+- [ ] 基于 Planner 复杂度评估的动态 Coder 模型选择
+- [ ] 推理型模型 (o3-mini, R1) 处理复杂任务
+- [ ] 快速模型 (grok-code-fast-1) 处理简单/平凡任务
+- [ ] 成本 - 质量 - 速度平衡优化
+
+**设计目标**：解决当前”非推理型 Coder”在复杂任务上的逻辑错误问题
+
+**实现方案**：
+```python
+COMPLEXITY_MODEL_MAP = {
+    (“computation”, “trivial”):   (“grok-code-fast-1”, False),  # 快
+    (“computation”, “simple”):    (“grok-code-fast-1”, False),  # 快
+    (“computation”, “medium”):    (“kimi-k2.5”, False),         # 平衡
+    (“computation”, “complex”):   (“o3-mini”, True),            # 推理型 + 自检
+    (“multi_step”, “complex”):    (“o3-mini”, True),
+    (“hybrid”, “medium”):         (“kimi-k2.5”, True),
+}
+```
+
+### Phase 7: 代码自检机制 (计划中)
+- [ ] 生成带断言验证的代码
+- [ ] 类型检查和范围验证
+- [ ] 关键任务多版本代码对比
+
+**自检代码模板**：
+```python
+# 非推理型 (快)
+print(result)
+
+# 推理型 + 自检 (慢但稳)
+try:
+    result = compute()
+    # 自检逻辑
+    assert type(result) in [int, float, str], f”Unexpected type: {type(result)}”
+    if isinstance(result, (int, float)):
+        assert -1e10 < result < 1e10, f”Result out of range: {result}”
+    print(result)
+except AssertionError as e:
+    raise RuntimeError(f”Self-check failed: {e}”)
+```
+
+### Phase 8: 代码记忆体 (计划中)
 - [ ] 引入 Redis/Postgres 存储成功代码
-- [ ] 实现”报错修复”逻辑：`try-except` 捕获沙箱错误 -> 发送给 LLM 修复 -> 运行新代码并替换缓存
 - [ ] 向量匹配：检测当前任务是否与库中某个”成功特例”高度相似
+- [ ] 代码进化：报错后自动修复并更新缓存
 
 ---
 
@@ -153,4 +195,25 @@ sequenceDiagram
 这种 **UPA (Unified Programmatic Agent)** 架构的核心优势在于：
 1.  **极度简化后端**：不需要复杂的 Prompt 分流逻辑，只有一条路走到底。
 2.  **不仅是对话**：这是一个能**自动编写并扩充自己功能**的软件。通过自愈代码，系统在应对边缘案例（Edge Cases）时会越来越稳固。
-3.  **可解释性**：所有 AI 的行为都记录在它生成的 Python 脚本中。如果 AI 错了，我们可以清晰地看到它的“逻辑公式”错在哪一行，而不是去猜它的“心路历程”。
+3.  **可解释性**：所有 AI 的行为都记录在它生成的 Python 脚本中。如果 AI 错了，我们可以清晰地看到它的”逻辑公式”错在哪一行，而不是去猜它的”心路历程”。
+
+## 8. 后续演进方向
+
+### 鲁棒性公式
+
+```
+鲁棒性 = Planner 准确分类 × Coder 能力匹配 × 自检覆盖率
+
+当前：80% × 60% × 0%  ≈ 48%
+目标：80% × 90% × 80%  ≈ 58%
+```
+
+### 各阶段目标
+
+| 阶段 | 核心能力 | 解决痛点 | 预期收益 |
+|------|---------|---------|---------|
+| Phase 6 | 复杂度感知 Coder | 逻辑错误 | 复杂题准确率 60%→90%+ |
+| Phase 7 | 代码自检 | 逻辑错误漏检 | 自检覆盖率 0%→80% |
+| Phase 8 | 代码缓存 | 重复生成成本 | 缓存命中率 30%+ |
+
+通过这三阶段的演进，UPA 将从当前的”速度快但复杂题易错”进化为”简单题快、复杂题稳”的成熟架构。

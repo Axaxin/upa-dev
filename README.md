@@ -94,7 +94,18 @@ upa-dev/
 - [x] Benchmark framework integration with Planner tracking
 - [x] Planner validation test suite with automated accuracy reporting
 
-### 🚧 Phase 6: Code Memory (Planned)
+### 🚧 Phase 6: Complexity-Aware Coder Selection (Planned)
+- [ ] Dynamic Coder model selection based on Planner's complexity assessment
+- [ ] Reasoning models (o3-mini, R1) for complex tasks
+- [ ] Fast models (grok-code-fast-1) for simple/trivial tasks
+- [ ] Cost-Quality-Speed balance optimization
+
+### Phase 7: Self-Check Mechanism (Planned)
+- [ ] Code-generated assertions for logic validation
+- [ ] Type checking and range validation
+- [ ] Multi-version code comparison for critical tasks
+
+### Phase 8: Code Memory & Caching (Planned)
 - [ ] Code caching with vector similarity matching
 - [ ] Code evolution and self-improvement
 - [ ] Redis/Postgres storage for successful code
@@ -272,6 +283,11 @@ User Query → Planner Analysis → Dynamic Prompt Construction
 - **Multi-Provider**: Support for DashScope (Qwen/Kimi), Cloudflare (Grok), and more
 - **Flexible CLI**: `--model` and `--config` for easy provider/model management
 - **Benchmark Integration**: Full Planner tracking in benchmark results
+
+**Planned Features**:
+- **Complexity-Aware Coder (Phase 6)**: Dynamic model selection balancing cost/quality/speed
+- **Self-Check Mechanism (Phase 7)**: Generated code includes assertions for logic validation
+- **Code Memory (Phase 8)**: Vector-based code caching and evolution
 
 ## Benchmark Results
 
