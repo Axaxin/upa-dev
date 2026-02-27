@@ -274,6 +274,55 @@ solve()
 - [x] 更新测试用例
 - [x] 更新 benchmark 测试
 
+### ✅ Phase 9: 逻辑契约 (Logic Contract) (已完成)
+
+**目标**：强制工具结果被正确使用，解决 Coder 调用工具后忽略结果的问题。
+
+**问题分析**：
+1. Planner 输出过于抽象：只给出高-level 步骤描述，没有变量绑定
+2. Coder 做的是"续写"任务：LLM 倾向于用训练数据知识，而非解析工具返回
+3. 缺少数据流约束：工具返回值如何传递到下一步没有明确定义
+
+**解决方案**：
+将 Planner-Coder 关系从"架构师-码农"升级为"逻辑设计器-编译器"。
+
+**新增数据结构**：
+```python
+@dataclass
+class LogicStep:
+    id: str              # "S1", "S2", ...
+    action: str          # "web_search" | "ask_semantic" | "set_output"
+    args: dict           # 工具参数（支持变量插值 {var}）
+    input_vars: list     # 依赖的变量
+    output_var: str      # 输出变量名
+    description: str     # 步骤描述
+```
+
+**示例：Planner 输出**：
+```json
+{
+  "logic_steps": [
+    {"id": "S1", "action": "web_search", "args": {"query": "支架式教学概念"}, "output_var": "search_data"},
+    {"id": "S2", "action": "ask_semantic", "args": {"query": "根据 {search_data} 回答问题"}, "input_vars": ["search_data"], "output_var": "answer"},
+    {"id": "S3", "action": "set_output", "args": {"value": "{answer}"}, "input_vars": ["answer"]}
+  ]
+}
+```
+
+**Coder 编译结果**：
+```python
+search_data = web_search(query='支架式教学概念')
+answer = ask_semantic(query=f'根据 {search_data} 回答问题')
+set_output(answer)
+```
+
+**任务分解**：
+- [x] 新增 `LogicStep` 数据结构
+- [x] 修改 `Plan` 添加 `logic_steps` 字段
+- [x] 升级 Planner Prompt 输出 `logic_steps`
+- [x] 新增 `build_logic_contract_prompt()` 函数
+- [x] 更新 `parse_plan_from_json()` 解析 `logic_steps`
+
 ---
 
 ## 7. 总结：为什么要这么做？
