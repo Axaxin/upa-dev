@@ -83,6 +83,102 @@ class ToolDefinition:
     complexity_score: int
 
 
+# =============================================================================
+# Phase 6: Complexity-Aware Coder Selection
+# =============================================================================
+
+@dataclass
+class ComplexityModelMapping:
+    """Mapping from (intent, complexity) to model configuration."""
+    model: str                      # Model identifier
+    provider: str | None = None     # Optional provider override
+    enable_self_check: bool = False # Enable TDD self-check in prompt
+
+
+def parse_model_mapping(value: str) -> ComplexityModelMapping:
+    """
+    Parse 'model[:provider][:self-check]' into ComplexityModelMapping.
+
+    Examples:
+        "grok/grok-code-fast-1"
+        "kimi-k2.5:dashscope"
+        "kimi-k2.5:dashscope:self-check"
+        "o3-mini:openai:self-check"
+    """
+    parts = value.split(":")
+    model = parts[0]
+    provider = None
+    enable_self_check = False
+
+    for part in parts[1:]:
+        if part == "self-check":
+            enable_self_check = True
+        elif part:  # Non-empty string that's not "self-check"
+            provider = part
+
+    return ComplexityModelMapping(model, provider, enable_self_check)
+
+
+def load_complexity_map_from_env() -> dict[tuple[str, str], ComplexityModelMapping]:
+    """
+    Load complexity model mapping from environment variables.
+
+    Format: UPA_MODEL_MAP_{INTENT}_{COMPLEXITY}=model[:provider][:self-check]
+
+    Examples:
+        UPA_MODEL_MAP_computation_simple=grok/grok-code-fast-1
+        UPA_MODEL_MAP_computation_medium=kimi-k2.5:dashscope:self-check
+        UPA_MODEL_MAP__complex=kimi-k2.5:dashscope:self-check  # wildcard
+    """
+    mapping = DEFAULT_COMPLEXITY_MODEL_MAP.copy()
+
+    for key, value in os.environ.items():
+        if key.startswith("UPA_MODEL_MAP_"):
+            # Parse: UPA_MODEL_MAP_computation_complex=...
+            suffix = key[len("UPA_MODEL_MAP_"):]  # "computation_complex"
+            parts = suffix.rsplit("_", 1)  # Split from right: ["computation", "complex"]
+
+            if len(parts) == 2:
+                intent, complexity = parts
+                intent = intent.lower()
+                complexity = complexity.lower()
+
+                # Handle wildcard intent: UPA_MODEL_MAP__complex
+                if intent == "":
+                    intent = "*"
+
+                # Validate complexity level
+                if complexity in ("trivial", "simple", "medium", "complex"):
+                    mapping[(intent, complexity)] = parse_model_mapping(value)
+
+    return mapping
+
+
+# Default complexity-to-model mapping registry
+DEFAULT_COMPLEXITY_MODEL_MAP: dict[tuple[str, str], ComplexityModelMapping] = {
+    # Fast models for trivial/simple tasks
+    ("computation", "trivial"): ComplexityModelMapping("grok/grok-code-fast-1"),
+    ("computation", "simple"):  ComplexityModelMapping("grok/grok-code-fast-1"),
+    ("simple_chat", "trivial"): ComplexityModelMapping("grok/grok-code-fast-1"),
+    ("simple_chat", "simple"):  ComplexityModelMapping("grok/grok-code-fast-1"),
+
+    # kimi-k2.5 for medium/complex tasks (with self-check)
+    # Note: kimi-k2.5 requires DashScope provider
+    ("computation", "medium"): ComplexityModelMapping("kimi-k2.5", provider="dashscope", enable_self_check=True),
+    ("computation", "complex"): ComplexityModelMapping("kimi-k2.5", provider="dashscope", enable_self_check=True),
+    ("hybrid", "medium"):       ComplexityModelMapping("kimi-k2.5", provider="dashscope", enable_self_check=True),
+    ("hybrid", "complex"):      ComplexityModelMapping("kimi-k2.5", provider="dashscope", enable_self_check=True),
+    ("multi_step", "medium"):   ComplexityModelMapping("kimi-k2.5", provider="dashscope", enable_self_check=True),
+    ("multi_step", "complex"):  ComplexityModelMapping("kimi-k2.5", provider="dashscope", enable_self_check=True),
+    ("semantic", "medium"):     ComplexityModelMapping("kimi-k2.5", provider="dashscope", enable_self_check=True),
+    ("semantic", "complex"):    ComplexityModelMapping("kimi-k2.5", provider="dashscope", enable_self_check=True),
+
+    # Wildcard fallback for any medium/complex task
+    ("*", "medium"):  ComplexityModelMapping("kimi-k2.5", provider="dashscope", enable_self_check=True),
+    ("*", "complex"): ComplexityModelMapping("kimi-k2.5", provider="dashscope", enable_self_check=True),
+}
+
+
 # Tool Registry
 TOOL_REGISTRY: dict[str, ToolDefinition] = {
     "ask_sub_agent": ToolDefinition(
@@ -414,8 +510,14 @@ STATIC_CODER_PROMPT = """你是一个 Python 逻辑单元。你的回答必须�
 - 只输出 ```python ... ``` 格式的代码"""
 
 
-def build_coder_prompt(plan: Plan) -> str:
-    """Build optimized SYSTEM_PROMPT based on plan."""
+def build_coder_prompt(plan: Plan, enable_self_check: bool | None = None) -> str:
+    """Build optimized SYSTEM_PROMPT based on plan.
+
+    Args:
+        plan: Planner's output with intent, complexity, etc.
+        enable_self_check: Override for self-check requirement.
+            If None, uses plan.complexity to determine.
+    """
     # If skip_planning, use static prompt
     if plan.skip_planning:
         return STATIC_CODER_PROMPT
@@ -462,8 +564,10 @@ def build_coder_prompt(plan: Plan) -> str:
     # Add output format hint
     base_prompt += f"\n期望输出类型：{plan.expected_output_type}\n"
 
-    # Add self-check requirements for medium/complex tasks (TDD in Agent)
-    if plan.complexity in ("medium", "complex"):
+    # Add self-check requirements if enabled (TDD in Agent)
+    # Use override if provided, otherwise check complexity
+    should_check = enable_self_check if enable_self_check is not None else plan.complexity in ("medium", "complex")
+    if should_check:
         base_prompt += """
 【自检要求】（重要！）
 在 print() 输出前，请添加 assert 语句对关键结果进行校验。如果 assert 失败，系统会自动修复代码。
@@ -659,6 +763,12 @@ class Config:
     web_search_enabled: bool = True
     post_process_enabled: bool = False  # Default to disabled for backward compatibility
 
+    # Phase 6: Complexity-aware coder selection
+    complexity_selection_enabled: bool = True
+    complexity_model_map: dict[tuple[str, str], "ComplexityModelMapping"] = field(
+        default_factory=dict  # Loaded from env in from_env()
+    )
+
     # Retry settings
     max_security_retries: int = 3
     max_execution_retries: int = 3
@@ -666,7 +776,8 @@ class Config:
     @classmethod
     def from_env(cls) -> "Config":
         """Load configuration from environment variables."""
-        provider = os.getenv("UPA_PROVIDER", "dashscope")
+        # Coder provider: UPA_CODER_PROVIDER > UPA_PROVIDER (backward compatible)
+        provider = os.getenv("UPA_CODER_PROVIDER") or os.getenv("UPA_PROVIDER", "dashscope")
 
         # Build provider-specific env var names for coder
         url_key = f"{provider.upper()}_URL"
@@ -678,6 +789,9 @@ class Config:
         default_url = preset.get("url", "")
         default_model = preset.get("default_model", "")
 
+        # Coder model: UPA_CODER_MODEL > {PROVIDER}_MODEL > default
+        coder_model = os.getenv("UPA_CODER_MODEL") or os.getenv(model_key, default_model)
+
         # Get planner provider/model
         planner_provider = os.getenv("UPA_PLANNER_PROVIDER", None)
         planner_model = os.getenv("UPA_PLANNER_MODEL", None)
@@ -686,12 +800,15 @@ class Config:
         sub_agent_provider = os.getenv("UPA_SUB_AGENT_PROVIDER", None)
         sub_agent_model = os.getenv("UPA_SUB_AGENT_MODEL", None)
 
+        # Load complexity model map from environment
+        complexity_model_map = load_complexity_map_from_env()
+
         return cls(
             # Coder config
             provider=provider,
             url=os.getenv(url_key, default_url),
             api_key=os.getenv(key_key, ""),
-            model=os.getenv(model_key, default_model),
+            model=coder_model,
             # Planner config
             planner_provider=planner_provider,
             planner_model=planner_model,
@@ -703,6 +820,9 @@ class Config:
             sub_agent_timeout=float(os.getenv("UPA_SUB_AGENT_TIMEOUT", "60.0")),
             web_search_enabled=os.getenv("UPA_WEB_SEARCH", "true").lower() == "true",
             post_process_enabled=os.getenv("UPA_POST_PROCESS", "false").lower() == "true",
+            # Phase 6
+            complexity_selection_enabled=os.getenv("UPA_COMPLEXITY_SELECTION", "true").lower() == "true",
+            complexity_model_map=complexity_model_map,
             max_security_retries=int(os.getenv("UPA_MAX_SECURITY_RETRIES", "3")),
             max_execution_retries=int(os.getenv("UPA_MAX_EXECUTION_RETRIES", "3")),
         )
@@ -743,8 +863,9 @@ class Config:
             f"    Timeout:         {self.sub_agent_timeout}s",
             "",
             "  Features:",
-            f"    Web Search:      {self.web_search_enabled}",
-            f"    Post-Process:    {self.post_process_enabled}",
+            f"    Web Search:           {self.web_search_enabled}",
+            f"    Post-Process:         {self.post_process_enabled}",
+            f"    Complexity Selection: {self.complexity_selection_enabled}",
             "",
             "  Retry Settings:",
             f"    Max Security:    {self.max_security_retries}",
@@ -1084,6 +1205,84 @@ def get_sub_agent_model(coder_model: str) -> str:
     return config.sub_agent_model or coder_model
 
 
+# =============================================================================
+# Phase 6: Complexity-Aware Coder Model Selection
+# =============================================================================
+
+def select_coder_model(
+    plan: Plan,
+    config: Config,
+    cli_model: str | None = None,
+    cli_provider: str | None = None,
+    complexity_selection_disabled: bool = False,
+) -> tuple[ProviderConfig, str, bool]:
+    """
+    Select Coder model based on plan complexity.
+
+    Priority:
+      1. CLI --model (user explicit override)
+      2. Complexity mapping (with cross-provider support)
+      3. Default provider model
+
+    Args:
+        plan: Planner's output with intent and complexity
+        config: Current configuration
+        cli_model: Model specified via --model CLI flag
+        cli_provider: Provider specified via --provider CLI flag
+        complexity_selection_disabled: If True, skip complexity-based selection
+
+    Returns:
+        (provider_config, model_name, enable_self_check)
+    """
+    # CLI override takes highest priority
+    if cli_model:
+        provider = get_provider(cli_provider or config.provider)
+        self_check = plan.complexity in ("medium", "complex")
+        print(f"Coder: CLI override model={cli_model}, self_check={self_check}", file=sys.stderr)
+        return provider, cli_model, self_check
+
+    # Complexity-based selection
+    if config.complexity_selection_enabled and not complexity_selection_disabled:
+        # Use config's map (loaded from env) instead of global DEFAULT
+        model_map = config.complexity_model_map or DEFAULT_COMPLEXITY_MODEL_MAP
+
+        # Try exact match, then wildcard
+        key = (plan.intent, plan.complexity)
+        if key not in model_map:
+            key = ("*", plan.complexity)
+
+        if key in model_map:
+            mapping = model_map[key]
+
+            # Handle cross-provider selection
+            if mapping.provider:
+                target_provider = get_provider(mapping.provider)
+                # Check if API key is configured
+                if target_provider.api_key:
+                    print(f"Coder: complexity={plan.complexity} → model={mapping.model}, "
+                          f"provider={mapping.provider}, self_check={mapping.enable_self_check}",
+                          file=sys.stderr)
+                    return target_provider, mapping.model, mapping.enable_self_check
+                else:
+                    # Fallback to default provider with mapped model
+                    print(f"  Warning: Provider '{mapping.provider}' not configured, "
+                          f"using default provider with model '{mapping.model}'", file=sys.stderr)
+                    provider = get_provider(config.provider)
+                    return provider, mapping.model, mapping.enable_self_check
+
+            # Same provider, different model
+            provider = get_provider(config.provider)
+            print(f"Coder: complexity={plan.complexity} → model={mapping.model}, "
+                  f"self_check={mapping.enable_self_check}", file=sys.stderr)
+            return provider, mapping.model, mapping.enable_self_check
+
+    # Fallback
+    provider = get_provider(cli_provider or config.provider)
+    self_check = plan.complexity in ("medium", "complex")
+    print(f"Coder: fallback model={provider.model}, self_check={self_check}", file=sys.stderr)
+    return provider, provider.model, self_check
+
+
 class SecurityChecker(ast.NodeVisitor):
     """AST visitor to check for dangerous code patterns."""
 
@@ -1198,7 +1397,7 @@ def ask_sub_agent(query: str, client: OpenAI | None = None, model: str = None) -
         # Set timeout (works on Unix systems)
         if hasattr(signal, 'SIGALRM'):
             signal.signal(signal.SIGALRM, timeout_handler)
-            signal.alarm(SUB_AGENT_TIMEOUT)
+            signal.alarm(int(SUB_AGENT_TIMEOUT))
 
         try:
             response = client.chat.completions.create(
@@ -1706,6 +1905,11 @@ def main():
         action="store_true",
         help="Disable post-processing even if planner suggests it",
     )
+    parser.add_argument(
+        "--no-complexity-selection",
+        action="store_true",
+        help="Disable complexity-based model selection",
+    )
 
     args = parser.parse_args()
 
@@ -1739,30 +1943,23 @@ def main():
     # Reset sub-agent context for fresh execution
     SubAgentContext.reset()
 
-    # Get provider configuration
-    provider = get_provider(args.provider)
+    # Get configuration
+    config = get_config()
 
     # Initialize timer
     timer = Timer()
-
-    # Validate API key
-    if not provider.api_key:
-        print(f"Error: API key not set for provider '{args.provider or DEFAULT_PROVIDER}'", file=sys.stderr)
-        sys.exit(1)
-
-    # Create client with selected provider
-    client = create_client(provider)
-    # Use --model argument if provided, otherwise use provider's default
-    model = args.model if args.model else provider.model
-
-    # Show provider info
-    print(f"Using: {provider.name} ({model})", file=sys.stderr)
 
     # ==========================================================================
     # Phase 0: Planner Analysis (Dynamic Prompt Construction)
     # ==========================================================================
     plan: Plan | None = None
     system_prompt = SYSTEM_PROMPT  # Default to static prompt
+
+    # Get planner provider and validate API key
+    planner_provider = get_planner_provider_config()
+    if not planner_provider.api_key:
+        print(f"Error: API key not set for planner provider", file=sys.stderr)
+        sys.exit(1)
 
     if PLANNER_ENABLED:
         # Quick bypass for trivial queries
@@ -1772,13 +1969,37 @@ def main():
         else:
             timer.start("Planner Analysis")
             # Get planner-specific model and client
-            planner_model = PLANNER_MODEL or model  # Use planner-specific model or fall back to coder model
-            planner_client = create_client(get_planner_provider_config())
-            plan = run_planner(planner_client, args.query, planner_model, timeout=PLANNER_TIMEOUT)
+            planner_model = config.planner_model or planner_provider.model
+            planner_client = create_client(planner_provider)
+            plan = run_planner(planner_client, args.query, planner_model, timeout=config.planner_timeout)
             timer.stop()
 
-            # Build dynamic system prompt based on plan
-            system_prompt = build_coder_prompt(plan)
+    # ==========================================================================
+    # Phase 6: Complexity-Aware Coder Model Selection
+    # ==========================================================================
+    # Select Coder model based on plan complexity (AFTER planner runs)
+    coder_provider, coder_model, enable_self_check = select_coder_model(
+        plan=plan or create_default_plan(skip_planning=True),
+        config=config,
+        cli_model=args.model,
+        cli_provider=args.provider,
+        complexity_selection_disabled=args.no_complexity_selection,
+    )
+
+    # Validate coder API key
+    if not coder_provider.api_key:
+        print(f"Error: API key not set for provider '{coder_provider.name}'", file=sys.stderr)
+        sys.exit(1)
+
+    # Create coder client with selected provider
+    client = create_client(coder_provider)
+
+    # Show provider info
+    print(f"Using: {coder_provider.name} ({coder_model})", file=sys.stderr)
+
+    # Build dynamic system prompt based on plan
+    if plan and not plan.skip_planning:
+        system_prompt = build_coder_prompt(plan, enable_self_check=enable_self_check)
 
     # ==========================================================================
     # Phase 1: Code Generation with Security Retry Loop
@@ -1807,7 +2028,7 @@ def main():
         response, conversation_history = generate_code(
             client,
             args.query,
-            model,
+            coder_model,
             error_feedback=error_feedback,
             conversation_history=conversation_history,
             system_prompt=system_prompt,  # Use dynamic prompt from planner
@@ -1883,7 +2104,7 @@ def main():
 
     for exec_attempt in range(MAX_EXECUTION_RETRIES):
         timer.start("Code Execute")
-        output, error = execute_code(code, client=client, provider=provider)
+        output, error = execute_code(code, client=client, provider=coder_provider)
         timer.stop()
 
         if not error:
@@ -1915,7 +2136,7 @@ def main():
             response, conversation_history = generate_code(
                 client,
                 args.query,
-                model,
+                coder_model,
                 error_feedback=error_feedback,
                 conversation_history=conversation_history,
                 system_prompt=system_prompt,  # Use same dynamic prompt for self-healing
@@ -1977,7 +2198,7 @@ def main():
             client,
             args.query,
             output,
-            model,
+            coder_model,
             format_hint=plan.output_format_hint if plan else "",
         )
         timer.stop()

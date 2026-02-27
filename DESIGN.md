@@ -141,29 +141,39 @@ sequenceDiagram
 - [x] 任务分解：复杂问题分步骤执行
 - [x] 基准测试框架集成：Planner 追踪和统计
 
-### 🚧 Phase 6: 复杂度感知 Coder 选择 (计划中)
-- [ ] 基于 Planner 复杂度评估的动态 Coder 模型选择
-- [ ] 推理型模型 (o3-mini, R1) 处理复杂任务
-- [ ] 快速模型 (grok-code-fast-1) 处理简单/平凡任务
-- [ ] 成本 - 质量 - 速度平衡优化
+### ✅ Phase 6: 复杂度感知 Coder 选择 (已完成)
+- [x] 基于 Planner 复杂度评估的动态 Coder 模型选择
+- [x] 实现 `ComplexityModelMapping` 数据结构
+- [x] 实现 `select_coder_model()` 核心选择逻辑
+- [x] 重构 `main()` 执行流程：模型选择移至 Planner 之后
+- [x] 支持 `--no-complexity-selection` CLI 标志禁用
+- [x] 跨 Provider 支持（如目标 Provider 无 API Key 则回退）
+- [x] 环境变量自定义映射：`UPA_MODEL_MAP_{INTENT}_{COMPLEXITY}`
+- [x] 配置别名：`UPA_CODER_PROVIDER`/`UPA_CODER_MODEL`
 
-**设计目标**：解决当前”非推理型 Coder”在复杂任务上的逻辑错误问题
+**设计决策**：
+- 使用 kimi-k2.5 处理 medium/complex 任务（可配置切换）
+- 简单任务使用 grok-code-fast-1 快速响应
 
-**实现方案**：
+**映射配置**：
 ```python
-COMPLEXITY_MODEL_MAP = {
-    (“computation”, “trivial”):   (“grok-code-fast-1”, False),  # 快
-    (“computation”, “simple”):    (“grok-code-fast-1”, False),  # 快
-    (“computation”, “medium”):    (“kimi-k2.5”, False),         # 平衡
-    (“computation”, “complex”):   (“o3-mini”, True),            # 推理型 + 自检
-    (“multi_step”, “complex”):    (“o3-mini”, True),
-    (“hybrid”, “medium”):         (“kimi-k2.5”, True),
+# 默认映射（可通过环境变量覆盖）
+DEFAULT_COMPLEXITY_MODEL_MAP = {
+    (“computation”, “trivial”):   ComplexityModelMapping(“grok/grok-code-fast-1”),
+    (“computation”, “simple”):    ComplexityModelMapping(“grok/grok-code-fast-1”),
+    (“computation”, “medium”):    ComplexityModelMapping(“kimi-k2.5”, provider=”dashscope”, enable_self_check=True),
+    (“computation”, “complex”):   ComplexityModelMapping(“kimi-k2.5”, provider=”dashscope”, enable_self_check=True),
+    (“*”, “complex”):             ComplexityModelMapping(“kimi-k2.5”, provider=”dashscope”, enable_self_check=True),
 }
+
+# 环境变量自定义映射
+# 格式：UPA_MODEL_MAP_{INTENT}_{COMPLEXITY}=model[:provider][:self-check]
+# 示例：UPA_MODEL_MAP_computation_medium=kimi-k2.5:dashscope:self-check
 ```
 
-### Phase 7: 代码自检机制 (计划中)
-- [ ] 生成带断言验证的代码
-- [ ] 类型检查和范围验证
+### ✅ Phase 7: 代码自检机制 (部分完成)
+- [x] 生成带断言验证的代码（已在 Phase 5 实现）
+- [x] 类型检查和范围验证模板
 - [ ] 关键任务多版本代码对比
 
 **自检代码模板**：
