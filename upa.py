@@ -1076,10 +1076,9 @@ def set_default_config(provider_name: str, model: str) -> None:
 # =============================================================================
 # Planner Configuration
 # =============================================================================
-# Note: These are now loaded via Config.from_env() and accessed via get_config()
-# Constants below are kept for backward compatibility, loaded from Config at runtime
+# System Prompt: Always-Code (alias for STATIC_CODER_PROMPT)
+# =============================================================================
 
-# System Prompt: Always-Code (use static prompt from planner module for backward compatibility)
 SYSTEM_PROMPT = STATIC_CODER_PROMPT
 
 # Security: Blocked modules and functions
@@ -1105,66 +1104,6 @@ ALLOWED_MODULES = {
 }
 
 
-# =============================================================================
-# Configuration Property Accessors
-# =============================================================================
-# These functions provide backward compatibility by loading from Config
-
-def _get_planner_enabled() -> bool:
-    return get_config().planner_enabled
-
-def _get_planner_model() -> str | None:
-    return get_config().planner_model
-
-def _get_planner_timeout() -> float:
-    return get_config().planner_timeout
-
-def _get_web_search_enabled() -> bool:
-    return get_config().web_search_enabled
-
-def _get_max_semantic_depth() -> int:
-    return get_config().semantic_max_depth
-
-def _get_semantic_timeout() -> float:
-    return get_config().semantic_timeout
-
-def _get_max_security_retries() -> int:
-    return get_config().max_security_retries
-
-def _get_max_execution_retries() -> int:
-    return get_config().max_execution_retries
-
-# Module-level constants (loaded from Config at module import time)
-# These are evaluated once when the module loads, after Config is initialized
-PLANNER_ENABLED: bool = True  # Placeholder, will be updated below
-PLANNER_MODEL: str | None = None
-PLANNER_TIMEOUT: float = 5.0
-WEB_SEARCH_ENABLED: bool = True
-MAX_SEMANTIC_DEPTH: int = 3
-SEMANTIC_TIMEOUT: float = 60.0
-MAX_SECURITY_RETRIES: int = 3
-MAX_EXECUTION_RETRIES: int = 3
-
-
-def _init_constants():
-    """Initialize module-level constants from Config."""
-    global PLANNER_ENABLED, PLANNER_MODEL, PLANNER_TIMEOUT
-    global WEB_SEARCH_ENABLED, MAX_SEMANTIC_DEPTH, SEMANTIC_TIMEOUT
-    global MAX_SECURITY_RETRIES, MAX_EXECUTION_RETRIES
-
-    config = get_config()
-    PLANNER_ENABLED = True  # Always enabled, controlled by config
-    PLANNER_MODEL = config.planner_model
-    PLANNER_TIMEOUT = config.planner_timeout
-    WEB_SEARCH_ENABLED = config.web_search_enabled
-    MAX_SEMANTIC_DEPTH = config.semantic_max_depth
-    SEMANTIC_TIMEOUT = config.semantic_timeout
-    MAX_SECURITY_RETRIES = config.max_security_retries
-    MAX_EXECUTION_RETRIES = config.max_execution_retries
-
-
-# Initialize constants from Config
-_init_constants()
 
 
 def get_planner_provider_config() -> ProviderConfig:
@@ -1327,10 +1266,13 @@ def ask_semantic(query: str, client: OpenAI | None = None, model: str = None) ->
     if not SemanticContext.is_enabled():
         return "[Error: Semantic calls disabled]"
 
+    # Get config for semantic settings
+    config = get_config()
+
     # Check recursion depth
     current_depth = SemanticContext.depth()
-    if current_depth >= MAX_SEMANTIC_DEPTH:
-        return f"[Error: Maximum semantic depth ({MAX_SEMANTIC_DEPTH}) reached]"
+    if current_depth >= config.semantic_max_depth:
+        return f"[Error: Maximum semantic depth ({config.semantic_max_depth}) reached]"
 
     # Increment depth for this call
     SemanticContext.increment()
@@ -1371,7 +1313,7 @@ def ask_semantic(query: str, client: OpenAI | None = None, model: str = None) ->
         # Set timeout (works on Unix systems)
         if hasattr(signal, 'SIGALRM'):
             signal.signal(signal.SIGALRM, timeout_handler)
-            signal.alarm(int(SEMANTIC_TIMEOUT))
+            signal.alarm(int(config.semantic_timeout))
 
         try:
             response = client.chat.completions.create(
@@ -1390,7 +1332,7 @@ def ask_semantic(query: str, client: OpenAI | None = None, model: str = None) ->
         return response.choices[0].message.content or ""
 
     except TimeoutError:
-        return f"[Error: Semantic call timed out after {SEMANTIC_TIMEOUT}s]"
+        return f"[Error: Semantic call timed out after {config.semantic_timeout}s]"
     except Exception as e:
         return f"[Error: Semantic call failed: {str(e)}]"
     finally:
@@ -1418,7 +1360,6 @@ def get_semantic_model(model: str) -> str:
 
 # Web Search configuration
 WEB_SEARCH_TIMEOUT = 30    # Timeout for web search calls in seconds
-WEB_SEARCH_ENABLED = os.getenv("UPA_WEB_SEARCH", "true").lower() == "true"
 # Tavily API configuration (default key for testing)
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "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")
 
@@ -1457,8 +1398,9 @@ def web_search(query: str, num_results: int = 5) -> dict:
             for r in data["results"]:
                 print(f"• {r['title']}: {r['content'][:100]}...")
     """
-    # Check if web search is enabled
-    if not WEB_SEARCH_ENABLED:
+    # Check if web search is enabled (from config)
+    config = get_config()
+    if not config.web_search_enabled:
         return {"query": query, "results": [], "answer": None, "error": "Web search disabled"}
 
     # Output search call info to stderr for tracking
@@ -1842,7 +1784,7 @@ def main():
         print(f"Error: API key not set for planner provider", file=sys.stderr)
         sys.exit(1)
 
-    if PLANNER_ENABLED:
+    if True:  # Planner is always enabled, controlled by config
         # Quick bypass for trivial queries
         if is_trivial_query(args.query):
             print("Planner: Trivial query detected, using static prompt", file=sys.stderr)
@@ -1903,7 +1845,7 @@ def main():
         "violations": [],
     }
 
-    for attempt in range(MAX_SECURITY_RETRIES):
+    for attempt in range(config.max_security_retries):
         # Generate code (with error feedback on retry)
         llm_timer.start("LLM Generate")
         response, conversation_history = generate_code(
@@ -1922,9 +1864,9 @@ def main():
         code_extract_timer.stop()
 
         if not code:
-            if attempt < MAX_SECURITY_RETRIES - 1:
+            if attempt < config.max_security_retries - 1:
                 error_feedback = "错误：未找到Python代码块。请确保输出格式为 ```python ... ```"
-                print(f"  No code block found, retrying... ({attempt + 1}/{MAX_SECURITY_RETRIES})", file=sys.stderr)
+                print(f"  No code block found, retrying... ({attempt + 1}/{config.max_security_retries})", file=sys.stderr)
                 continue
             else:
                 print("\n无法生成有效的Python代码。", file=sys.stderr)
@@ -1937,15 +1879,15 @@ def main():
         security_timer.stop()
 
         if violations:
-            if attempt < MAX_SECURITY_RETRIES - 1:
+            if attempt < config.max_security_retries - 1:
                 # Build error feedback for retry
                 error_feedback = "安全违规：\n" + "\n".join(f"  - {v}" for v in violations)
                 security_retry_data["retry_count"] = attempt + 1
                 security_retry_data["violations"] = violations
-                print(f"  Security violations detected, retrying... ({attempt + 1}/{MAX_SECURITY_RETRIES})", file=sys.stderr)
+                print(f"  Security violations detected, retrying... ({attempt + 1}/{config.max_security_retries})", file=sys.stderr)
                 continue
             else:
-                print(f"\n经过 {MAX_SECURITY_RETRIES} 次尝试，仍无法生成符合安全要求的代码。", file=sys.stderr)
+                print(f"\n经过 {config.max_security_retries} 次尝试，仍无法生成符合安全要求的代码。", file=sys.stderr)
                 print("检测到的安全问题:", file=sys.stderr)
                 for v in violations:
                     print(f"  - {v}", file=sys.stderr)
@@ -1983,7 +1925,7 @@ def main():
     self_heal_errors = []
     final_code = code
 
-    for exec_attempt in range(MAX_EXECUTION_RETRIES):
+    for exec_attempt in range(config.max_execution_retries):
         timer.start("Code Execute")
         output, error = execute_code(code, client=client, provider=coder_provider)
         timer.stop()
@@ -1993,13 +1935,13 @@ def main():
 
         # Execution failed, attempt self-healing
         execution_error = error
-        if exec_attempt < MAX_EXECUTION_RETRIES - 1:
+        if exec_attempt < config.max_execution_retries - 1:
             self_heal_attempts += 1
             # Extract first line of error for summary
             error_summary = error.split('\n')[0][:100] if error else "Unknown error"
             self_heal_errors.append(error_summary)
 
-            print(f"\n  Execution error, attempting self-heal ({exec_attempt + 1}/{MAX_EXECUTION_RETRIES})...", file=sys.stderr)
+            print(f"\n  Execution error, attempting self-heal ({exec_attempt + 1}/{config.max_execution_retries})...", file=sys.stderr)
 
             # Build error feedback for LLM to fix
             error_feedback = f"""代码执行时发生错误：
@@ -2047,7 +1989,7 @@ def main():
 
     # After all attempts, check if we still have an error
     if execution_error and error:
-        print(f"\n经过 {MAX_EXECUTION_RETRIES} 次自愈尝试，仍无法执行成功:", file=sys.stderr)
+        print(f"\n经过 {config.max_execution_retries} 次自愈尝试，仍无法执行成功:", file=sys.stderr)
         print(error, file=sys.stderr)
         print(f"\n问题类型: 代码逻辑错误（非安全问题）", file=sys.stderr)
         print(f"建议: 检查代码逻辑或重新表述您的需求", file=sys.stderr)
@@ -2107,7 +2049,7 @@ def main():
             "security_retry_count": security_retry_data.get("retry_count", 0),
             "timing_ms": timer.to_dict(),
             "planner": {
-                "enabled": PLANNER_ENABLED,
+                "enabled": True,
                 "intent": plan.intent if plan else None,
                 "complexity": plan.complexity if plan else None,
                 "required_tools": plan.required_tools if plan else [],
@@ -2116,7 +2058,7 @@ def main():
                 "confidence": plan.confidence if plan else None,
                 "skip_planning": plan.skip_planning if plan else True,
                 "timing_ms": timer.to_dict().get("Planner Analysis", 0),
-            } if plan and PLANNER_ENABLED else None,
+            } if plan else None,
         }
         # Output as a compact JSON line to stderr
         print(f"__UPA_JSON__{json_module.dumps(report)}", file=sys.stderr)
