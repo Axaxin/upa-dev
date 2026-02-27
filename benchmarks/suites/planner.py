@@ -53,32 +53,32 @@ INTENT_TESTS = [
         expect_planner_intent="computation",
     ),
 
-    # Semantic - should use ask_sub_agent
+    # Semantic - should use ask_semantic
     TestCase(
         name="Intent-Semantic-Translate",
         query="把 Hello 翻译成中文",
         complexity=Complexity.SIMPLE,
-        description="Translation needs sub-agent",
+        description="Translation needs semantic",
         expect_planner_intent="semantic",
-        expect_planner_tools=["ask_sub_agent"],
+        expect_planner_tools=["ask_semantic"],
     ),
     TestCase(
         name="Intent-Semantic-Summarize",
         query="总结这段文字的主旨：人工智能正在改变世界",
         complexity=Complexity.SIMPLE,
-        description="Summarization needs sub-agent",
+        description="Summarization needs semantic",
         expect_planner_intent="semantic",
-        expect_planner_tools=["ask_sub_agent"],
+        expect_planner_tools=["ask_semantic"],
     ),
 
-    # Hybrid - should use ask_sub_agent
+    # Hybrid - should use ask_semantic
     TestCase(
         name="Intent-Hybrid-TranslateCount",
         query="把 Hello 翻译成中文，然后计算中文字符数量",
         complexity=Complexity.MEDIUM,
         description="Translation + computation",
         expect_planner_intent="hybrid",
-        expect_planner_tools=["ask_sub_agent"],
+        expect_planner_tools=["ask_semantic"],
     ),
 
     # Multi-step - should use web_search
@@ -98,13 +98,13 @@ INTENT_TESTS = [
 # ============================================================================
 
 TOOL_TESTS = [
-    # Translation needs ask_sub_agent
+    # Translation needs ask_semantic
     TestCase(
         name="Tool-Translation",
         query="把 'Good morning' 翻译成法语",
         complexity=Complexity.SIMPLE,
-        description="Translation needs ask_sub_agent",
-        expect_planner_tools=["ask_sub_agent"],
+        description="Translation needs ask_semantic",
+        expect_planner_tools=["ask_semantic"],
     ),
 
     # Search needs web_search
@@ -123,13 +123,13 @@ TOOL_TESTS = [
         expect_planner_tools=["web_search"],
     ),
 
-    # Sentiment analysis needs sub-agent
+    # Sentiment analysis needs semantic
     TestCase(
         name="Tool-Analysis-Sentiment",
         query="分析 '这部电影太棒了' 的情感",
         complexity=Complexity.MEDIUM,
-        description="Sentiment analysis needs ask_sub_agent",
-        expect_planner_tools=["ask_sub_agent"],
+        description="Sentiment analysis needs ask_semantic",
+        expect_planner_tools=["ask_semantic"],
     ),
 
     # Math-only doesn't need tools

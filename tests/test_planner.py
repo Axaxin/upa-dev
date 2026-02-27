@@ -78,7 +78,7 @@ class TestCreateDefaultPlan:
         assert plan.intent == "unknown"
         assert plan.complexity == "simple"
         assert plan.steps == []
-        assert "ask_sub_agent" in plan.required_tools
+        assert "ask_semantic" in plan.required_tools
         assert plan.skip_planning == False
 
     def test_custom_intent(self):
@@ -105,10 +105,10 @@ class TestValidatePlan:
         plan = Plan(
             intent="computation",
             complexity="simple",
-            required_tools=["ask_sub_agent", "invalid_tool", "another_fake"],
+            required_tools=["ask_semantic", "invalid_tool", "another_fake"],
         )
         validated = validate_plan(plan)
-        assert "ask_sub_agent" in validated.required_tools
+        assert "ask_semantic" in validated.required_tools
         assert "invalid_tool" not in validated.required_tools
         assert "another_fake" not in validated.required_tools
 
@@ -146,7 +146,7 @@ class TestParsePlanFromJson:
         {
             "intent": "computation",
             "complexity": "simple",
-            "required_tools": ["ask_sub_agent"],
+            "required_tools": ["ask_semantic"],
             "relevant_modules": ["math"],
             "steps": [],
             "coding_hints": ["Use math module"],
@@ -159,7 +159,7 @@ class TestParsePlanFromJson:
         assert plan is not None
         assert plan.intent == "computation"
         assert plan.complexity == "simple"
-        assert plan.required_tools == ["ask_sub_agent"]
+        assert plan.required_tools == ["ask_semantic"]
         assert plan.relevant_modules == ["math"]
         assert plan.confidence == 0.9
 
@@ -170,7 +170,7 @@ class TestParsePlanFromJson:
             "intent": "hybrid",
             "complexity": "medium",
             "steps": [
-                {"order": 1, "description": "Step 1", "tool_needed": "ask_sub_agent", "expected_output": "result", "dependencies": []},
+                {"order": 1, "description": "Step 1", "tool_needed": "ask_semantic", "expected_output": "result", "dependencies": []},
                 {"order": 2, "description": "Step 2", "tool_needed": null, "expected_output": "final", "dependencies": [0]}
             ]
         }
@@ -214,10 +214,10 @@ class TestBuildCoderPrompt:
         plan = Plan(
             intent="semantic",
             complexity="simple",
-            required_tools=["ask_sub_agent"],
+            required_tools=["ask_semantic"],
         )
         prompt = build_coder_prompt(plan)
-        assert "ask_sub_agent" in prompt
+        assert "ask_semantic" in prompt
         assert "语义理解" in prompt
 
     def test_modules_included_in_prompt(self):
@@ -261,9 +261,9 @@ class TestToolRegistry:
 
     def test_required_tools_exist(self):
         """All expected tools should exist in registry."""
-        assert "ask_sub_agent" in TOOL_REGISTRY
+        assert "ask_semantic" in TOOL_REGISTRY
         assert "web_search" in TOOL_REGISTRY
-        assert "safe_sub_agent" in TOOL_REGISTRY
+        assert "safe_semantic" in TOOL_REGISTRY
 
     def test_tool_has_usage_doc(self):
         """Each tool should have usage documentation."""

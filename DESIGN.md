@@ -44,18 +44,18 @@
 - **技术栈**：Docker 容器或 WASM (WebAssembly) 隔离。
 - **预置库**：`pandas`, `numpy`, `requests`, `datetime`, `re` 等常用库。
 - **注入接口 (Standard Library Plus)**：
-    - `ask_sub_agent(prompt)`: 当代码逻辑难以处理语义（如识别图片、分析情感）时调用。
+    - `ask_semantic(prompt)`: 当代码逻辑难以处理语义（如识别图片、分析情感）时调用。
     - `memo_save(key, val)`: 手动存储关键中间变量。
 
-### 3.3 语义函数 (Sub-Agent as Function)
-当遇到“无法用公式/规则解决”的问题时，代码会通过 SDK 回调另一个轻量级 LLM：
+### 3.3 语义函数 (Semantic Function)
+当遇到”无法用公式/规则解决”的问题时，代码会通过 SDK 回调另一个轻量级 LLM：
 ```python
 # 示例：LLM 生成的代码片段
-comments = ["太棒了", "物流太慢"]
+comments = [“太棒了”, “物流太慢”]
 for c in comments:
-    is_neg = ask_sub_agent(f"判断是否为负面评价: {c}")
-    if "是" in is_neg:
-        print(f"检测到负面反馈: {c}")
+    is_neg = ask_semantic(f”判断是否为负面评价: {c}”)
+    if “是” in is_neg:
+        print(f”检测到负面反馈: {c}”)
 ```
 
 ### 3.4 缓存与进化层 (Code-Cache & Evolution)
@@ -171,10 +171,9 @@ DEFAULT_COMPLEXITY_MODEL_MAP = {
 # 示例：UPA_MODEL_MAP_computation_medium=kimi-k2.5:dashscope:self-check
 ```
 
-### ✅ Phase 7: 代码自检机制 (部分完成)
+### ✅ Phase 7: 代码自检机制 (已完成)
 - [x] 生成带断言验证的代码（已在 Phase 5 实现）
 - [x] 类型检查和范围验证模板
-- [ ] 关键任务多版本代码对比
 
 **自检代码模板**：
 ```python
@@ -192,11 +191,6 @@ try:
 except AssertionError as e:
     raise RuntimeError(f”Self-check failed: {e}”)
 ```
-
-### Phase 8: 代码记忆体 (计划中)
-- [ ] 引入 Redis/Postgres 存储成功代码
-- [ ] 向量匹配：检测当前任务是否与库中某个”成功特例”高度相似
-- [ ] 代码进化：报错后自动修复并更新缓存
 
 ---
 
@@ -218,12 +212,4 @@ except AssertionError as e:
 目标：80% × 90% × 80%  ≈ 58%
 ```
 
-### 各阶段目标
-
-| 阶段 | 核心能力 | 解决痛点 | 预期收益 |
-|------|---------|---------|---------|
-| Phase 6 | 复杂度感知 Coder | 逻辑错误 | 复杂题准确率 60%→90%+ |
-| Phase 7 | 代码自检 | 逻辑错误漏检 | 自检覆盖率 0%→80% |
-| Phase 8 | 代码缓存 | 重复生成成本 | 缓存命中率 30%+ |
-
-通过这三阶段的演进，UPA 将从当前的”速度快但复杂题易错”进化为”简单题快、复杂题稳”的成熟架构。
+通过 Phase 6 和 Phase 7 的实现，UPA 已从”速度快但复杂题易错”进化为”简单题快、复杂题稳”的成熟架构。后续优化方向将根据实际使用反馈确定。

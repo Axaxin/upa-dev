@@ -71,15 +71,14 @@ upa-dev/
 - [x] CLI with timing support
 
 ### ✅ Phase 2: Semantic Integration (Complete)
-- [x] `ask_sub_agent()` function for semantic tasks
+- [x] `ask_semantic()` function for semantic tasks
 - [x] Multi-level LLM calling (main for code, sub for semantics)
 - [x] Multi-provider support (DashScope, Cloudflare)
 
 ### ✅ Phase 3: Self-Healing (Complete)
 - [x] Auto-heal on execution errors (MAX_EXECUTION_RETRIES=3)
 - [x] Error feedback to LLM for automatic code repair
-- [x] Sub-agent self-healing (recursive error recovery)
-- [x] `@safe_sub_agent` decorator for simplified syntax
+- [x] `@safe_semantic` decorator for simplified syntax
 
 ### ✅ Phase 4: CLI Enhancements (Complete)
 - [x] `--model` flag to override provider's default model
@@ -90,7 +89,7 @@ upa-dev/
 - [x] Dynamic prompt construction based on query analysis
 - [x] Task decomposition for complex multi-step problems
 - [x] Intent classification (simple_chat, computation, semantic, hybrid, multi_step)
-- [x] Dynamic tool selection (ask_sub_agent, web_search)
+- [x] Dynamic tool selection (ask_semantic, web_search)
 - [x] Benchmark framework integration with Planner tracking
 - [x] Planner validation test suite with automated accuracy reporting
 

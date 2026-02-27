@@ -1,6 +1,6 @@
 """
 Semantic-Logic Hybrid Test Suite
-Tests tasks combining semantic understanding (sub-agent) with logic processing.
+Tests tasks combining semantic understanding with logic processing.
 """
 
 from benchmarks.suites.base import (
@@ -23,7 +23,7 @@ HYBRID_CASES: list[HybridTest] = [
     ),
     HybridTest(
         "多语言连接",
-        "用 ask_sub_agent 把 'Hello' 翻译成中文，把 'World' 翻译成中文，然后用空格连接输出。输出格式：print('你好 世界')",
+        "用 ask_semantic 把 'Hello' 翻译成中文，把 'World' 翻译成中文，然后用空格连接输出。输出格式：print('你好 世界')",
         TaskType.TRANSLATE_LOGIC,
         "Multiple translations concatenated",
         expected_contains="你好"
@@ -39,7 +39,7 @@ HYBRID_CASES: list[HybridTest] = [
     # ---- Summary + Analysis ----
     HybridTest(
         "摘要后提取关键词",
-        "用 ask_sub_agent 总结 'Python是一种广泛使用的高级编程语言'，然后从摘要中提取所有中文词汇的数量。输出格式：print(数量)",
+        "用 ask_semantic 总结 'Python是一种广泛使用的高级编程语言'，然后从摘要中提取所有中文词汇的数量。输出格式：print(数量)",
         TaskType.SUMMARIZE_ANALYZE,
         "Summarize then extract keywords",
         expected_numeric=(3, 5)
@@ -108,16 +108,16 @@ HYBRID_CASES: list[HybridTest] = [
     # ---- Recursive / Multi-step ----
     HybridTest(
         "链式翻译",
-        "用 ask_sub_agent 把'你好'翻译成英文，再用 ask_sub_agent 把结果翻译回中文。输出格式：print(翻译结果)",
+        "用 ask_semantic 把'你好'翻译成英文，再用 ask_semantic 把结果翻译回中文。输出格式：print(翻译结果)",
         TaskType.RECURSIVE,
         "Chain translation (zh->en->zh)",
         expected_contains="你好"
     ),
     HybridTest(
         "嵌套语义调用",
-        "用 ask_sub_agent 问：'5乘以3等于几'，打印返回的答案。输出格式：print(15)",
+        "用 ask_semantic 问：'5乘以3等于几'，打印返回的答案。输出格式：print(15)",
         TaskType.RECURSIVE,
-        "Nested sub-agent returning number",
+        "Nested semantic returning number",
         expected_numeric=(15, 1)
     ),
     HybridTest(

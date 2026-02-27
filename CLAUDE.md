@@ -60,21 +60,21 @@ The system follows a single unified workflow:
 ### Core Components
 
 - **Multi-Provider Support**: Switch between DashScope (Qwen) and Cloudflare (Grok) via `--provider` flag
-- **Sub-Agent Recursive Calls**: `ask_sub_agent()` allows LLM-generated code to call LLM for semantic tasks
+- **Semantic Function**: `ask_semantic()` allows LLM-generated code to call LLM for semantic tasks
 - **Security Guardrails**: AST-based blocking of dangerous modules (os, subprocess, exec, eval, etc.)
 - **Error Recovery**: Automatic retry with security feedback when violations detected
 
-### Sub-Agent System
+### Semantic Function
 
-The `ask_sub_agent(query: str) -> str` function is injected into the sandbox and allows:
+The `ask_semantic(query: str) -> str` function is injected into the sandbox and allows:
 - Semantic tasks (translation, sentiment analysis, summarization)
-- Recursive calls up to MAX_SUB_AGENT_DEPTH=3
-- 60-second timeout per sub-agent call
-- Automatic provider propagation to sub-agents
+- Recursive calls up to MAX_SEMANTIC_DEPTH=3
+- 60-second timeout per call
+- Direct text response (no code generation)
 
 ```python
-# Example: Using sub-agent in generated code
-translation = ask_sub_agent("Translate 'Hello' to Chinese")
+# Example: Using semantic in generated code
+translation = ask_semantic("Translate 'Hello' to Chinese")
 print(f"Translation: {translation}")
 ```
 
