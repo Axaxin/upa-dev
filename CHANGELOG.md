@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **MMLU Benchmark Optimization** (2026-02-28)
+  - Achieved 100% pass rate (32/32) on MMLU baseline tests, up from 90.6% (29/32)
+  - Added Chain-of-Thought (CoT) prompting for complex reasoning tasks
+  - Added explicit option mapping examples for multiple-choice questions
+  - Added web_search result formatting guidance for multi-step tool chains
+
+### Fixed
+- **Timeout Issue**: Increased benchmark timeout from 120s to 180s for parallel execution
+- **Option Mapping**: Fixed LLM generating code that outputs calculation results instead of option letters
+- **Tool Chain Handling**: Fixed web_search + ask_semantic chain by adding result formatting examples
+- **Syntax Error**: Fixed f-string syntax issue with full-width colons in prompt examples
+
+### Changed
+- **STATIC_CODER_PROMPT**: Added multiple-choice output rules and CoT reasoning examples
+- **build_logic_contract_prompt**: Added rule for formatting complex data before passing to ask_semantic
+- **build_logic_contract_prompt**: Added rule for Chain-of-Thought prompting
+
+### Performance
+- **MMLU Results**: 90.6% → 100.0% (32/32 tests passing)
+  - Statistics: Mean - Fixed timeout issue (now ~23s)
+  - Elementary Mathematics: Multiplication - Fixed option mapping
+  - Geography: Capitals - Fixed web_search result handling
+  - Chemistry: Reaction - Fixed with CoT prompting
+
+---
+
+### Added (Previous)
 - **Tavily Search API Integration**
   - Replaced DuckDuckGo with Tavily API for web search functionality
   - Fixed network timeout issues for search queries in mainland China

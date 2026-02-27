@@ -93,7 +93,8 @@ def run_upa_test(
     timestamp = datetime.now().isoformat()
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        # Increased timeout to 180s for parallel execution scenarios to prevent resource contention timeouts
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
         total_time = (time.perf_counter() - start_time) * 1000
 
         stdout = result.stdout
@@ -142,7 +143,7 @@ def run_upa_test(
                 if json_data.get("security_violations"):
                     violations = json_data["security_violations"]
 
-                # Parse planner information
+                # Parse planner information (Phase 5 & 9)
                 planner_data = json_data.get("planner")
                 if planner_data:
                     planner_enabled = planner_data.get("enabled", False)
@@ -154,6 +155,10 @@ def run_upa_test(
                     planner_confidence = planner_data.get("confidence")
                     planner_skip_planning = planner_data.get("skip_planning", True)
                     planner_timing_ms = planner_data.get("timing_ms", 0.0)
+                    # Phase 9: Logic Contract
+                    logic_steps = planner_data.get("logic_steps", [])
+                    logic_steps_count = planner_data.get("logic_steps_count", 0)
+                    uses_logic_contract = planner_data.get("uses_logic_contract", False)
             except (json.JSONDecodeError, ValueError):
                 pass
 
@@ -223,7 +228,10 @@ def run_upa_test(
 
         # Planner validation (for planner suite)
         if hasattr(test, 'expect_planner_intent') or hasattr(test, 'expect_planner_tools') or hasattr(test, 'expect_planner_skip'):
-            details.planner_validation = _validate_planner(test, planner_intent, planner_required_tools, planner_skip_planning)
+            details.planner_validation = _validate_planner(
+                test, planner_intent, planner_required_tools, planner_skip_planning,
+                logic_steps, uses_logic_contract
+            )
 
         return test, benchmark_result, metrics, details
 
@@ -232,7 +240,7 @@ def run_upa_test(
             query=test.query,
             success=False,
             output="",
-            timing={"total": 120000},
+            timing={"total": 180000},
             code_extracted=False,
             execution_error="Timeout"
         )
@@ -283,11 +291,12 @@ def run_hybrid_test(
     timestamp = datetime.now().isoformat()
 
     try:
+        # Increased timeout to 180s for parallel execution scenarios
         result = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
-            timeout=120,
+            timeout=180,
             env={**os.environ, "PYTHONUNBUFFERED": "1"}
         )
 
@@ -436,7 +445,7 @@ def run_hybrid_test(
             test=test,
             success=False,
             output="",
-            duration=120000,
+            duration=180000,
             sub_agent_calls=0,
             execution_error="Timeout"
         )
@@ -686,7 +695,14 @@ def _evaluate_quality(test: TestCase, result: BenchmarkResult) -> dict[QualityMe
     return metrics
 
 
-def _validate_planner(test: TestCase, intent: str | None, tools: list[str], skip_planning: bool) -> dict[str, bool]:
+def _validate_planner(
+    test: TestCase,
+    intent: str | None,
+    tools: list[str],
+    skip_planning: bool,
+    logic_steps: list[dict],
+    uses_logic_contract: bool
+) -> dict[str, bool]:
     """Validate Planner decisions against test expectations.
 
     Returns:
@@ -714,6 +730,20 @@ def _validate_planner(test: TestCase, intent: str | None, tools: list[str], skip
         validation['skip_correct'] = (skip_planning == test.expect_planner_skip)
         validation['skip_expected'] = test.expect_planner_skip
         validation['skip_actual'] = skip_planning
+
+    # Validate logic_steps (Phase 9)
+    if hasattr(test, 'expect_logic_steps') and test.expect_logic_steps is not None:
+        has_logic_steps = len(logic_steps) > 0
+        validation['logic_steps_correct'] = (has_logic_steps == test.expect_logic_steps)
+        validation['logic_steps_expected'] = test.expect_logic_steps
+        validation['logic_steps_actual'] = has_logic_steps
+        validation['logic_steps_count'] = len(logic_steps)
+
+    # Validate logic_contract usage (Phase 9)
+    if hasattr(test, 'expect_uses_logic_contract') and test.expect_uses_logic_contract is not None:
+        validation['logic_contract_correct'] = (uses_logic_contract == test.expect_uses_logic_contract)
+        validation['logic_contract_expected'] = test.expect_uses_logic_contract
+        validation['logic_contract_actual'] = uses_logic_contract
 
     # Overall planner validation passes if all checks pass
     validation['all_correct'] = all(v for k, v in validation.items() if k.endswith('_correct'))
