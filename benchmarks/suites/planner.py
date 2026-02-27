@@ -190,13 +190,66 @@ SKIP_PLANNING_TESTS = [
 
 
 # ============================================================================
+# Logic Steps / Logic Contract Tests (Phase 9)
+# ============================================================================
+
+LOGIC_STEPS_TESTS = [
+    # Web search + semantic should generate logic_steps with variable binding
+    TestCase(
+        name="LogicSteps-SearchAndAnalyze",
+        query="支架式教学的概念最早由谁提出？",
+        complexity=Complexity.MEDIUM,
+        description="Search + analysis should use logic_steps with variable binding",
+        expect_planner_intent="hybrid",
+        expect_planner_tools=["web_search", "ask_semantic"],
+        expect_logic_steps=True,
+        expect_uses_logic_contract=True,
+    ),
+
+    # Multi-step task should decompose into logic_steps
+    TestCase(
+        name="LogicSteps-MultiStep",
+        query="搜索Python最新版本特性，然后总结主要改进",
+        complexity=Complexity.COMPLEX,
+        description="Multi-step task should generate logic_steps",
+        expect_planner_intent="multi_step",
+        expect_planner_tools=["web_search", "ask_semantic"],
+        expect_logic_steps=True,
+        expect_uses_logic_contract=True,
+    ),
+
+    # Pure computation may skip logic_steps
+    TestCase(
+        name="LogicSteps-PureComputation",
+        query="计算100的阶乘",
+        complexity=Complexity.SIMPLE,
+        description="Pure computation may not need logic_steps",
+        expect_planner_intent="computation",
+        expect_logic_steps=False,  # Optional - pure computation may skip
+    ),
+
+    # Simple translation should use ask_semantic in logic_steps
+    TestCase(
+        name="LogicSteps-Translation",
+        query="将'Hello World'翻译成中文",
+        complexity=Complexity.SIMPLE,
+        description="Translation should have ask_semantic step",
+        expect_planner_intent="semantic",
+        expect_planner_tools=["ask_semantic"],
+        expect_logic_steps=True,
+    ),
+]
+
+
+# ============================================================================
 # Combine all tests
 # ============================================================================
 
 PLANNER_TEST_CASES = (
     INTENT_TESTS +
     TOOL_TESTS +
-    SKIP_PLANNING_TESTS
+    SKIP_PLANNING_TESTS +
+    LOGIC_STEPS_TESTS  # Add Phase 9 tests
 )
 
 

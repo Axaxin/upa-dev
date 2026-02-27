@@ -47,6 +47,9 @@ class TestCase:
     expect_planner_intent: str | None = None
     expect_planner_tools: list[str] | None = None
     expect_planner_skip: bool | None = None
+    # Phase 9: Logic Steps validation fields
+    expect_logic_steps: bool | None = None
+    expect_uses_logic_contract: bool | None = None
 
 
 @dataclass
@@ -137,6 +140,11 @@ class TestDetails:
 
     # Planner validation results
     planner_validation: dict[str, bool] = field(default_factory=dict)
+
+    # Phase 9: Logic Contract (Logic Steps)
+    logic_steps: list[dict] = field(default_factory=list)  # Detailed logic steps from planner
+    logic_steps_count: int = 0  # Number of logic steps
+    uses_logic_contract: bool = False  # True if plan.logic_steps is non-empty
 
     def to_dict(self) -> dict:
         """Convert to JSON-serializable dict."""
