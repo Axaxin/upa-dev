@@ -181,6 +181,38 @@ DEFAULT_COMPLEXITY_MODEL_MAP: dict[tuple[str, str], ComplexityModelMapping] = {
 
 # Tool Registry
 TOOL_REGISTRY: dict[str, ToolDefinition] = {
+    "set_output": ToolDefinition(
+        name="set_output",
+        description="Return final result (preserves data type)",
+        usage_doc="""- set_output(data): 返回最终结果，保持原始数据类型（dict, list, number, string等）。
+  必须调用一次，否则报错。
+
+  示例:
+    result = {"total": 100, "items": [1, 2, 3]}
+    set_output(result)
+
+    # 简单计算
+    set_output(42)
+
+    # 文本结果
+    set_output("Hello, World!")
+""",
+        categories=["output"],
+        complexity_score=0,
+    ),
+    "get_output": ToolDefinition(
+        name="get_output",
+        description="Get current output result (for chained processing)",
+        usage_doc="""- get_output(): 获取当前输出结果，用于链式处理。
+
+  示例:
+    data = get_output()  # 获取之前设置的结果
+    processed = data * 2
+    set_output(processed)
+""",
+        categories=["output"],
+        complexity_score=0,
+    ),
     "ask_semantic": ToolDefinition(
         name="ask_semantic",
         description="Process semantic tasks (translation, summary, sentiment)",
@@ -201,13 +233,9 @@ TOOL_REGISTRY: dict[str, ToolDefinition] = {
 
     # 检查错误
     if data.get("error"):
-        print(f"搜索失败: {data['error']}")
+        set_output({"error": data['error']})
     else:
-        # 格式化输出
-        if data["answer"]:
-            print(f"答案: {data['answer']}")
-        for r in data["results"]:
-            print(f"• {r['title']}: {r['content'][:100]}...")
+        set_output(data["results"])
 
     # 复杂任务可加 assert 自检
     assert data.get("results"), "搜索无结果"
@@ -467,42 +495,54 @@ def run_planner(
 STATIC_CODER_PROMPT = """你是一个 Python 逻辑单元。你的回答必须仅包含一个 Python 代码块。
 
 【重要提示】以下函数已经预定义，直接调用即可，不要重新定义：
+- set_output(data): 返回最终结果（保持原始数据类型）
+- get_output(): 获取当前输出结果（用于链式处理）
 - web_search(query, num_results=5) -> dict: 网络搜索函数，返回结构化数据
 - ask_semantic(query) -> str: 语义处理函数，直接返回文本结果
 - safe_semantic(query): 装饰器
 
 规则：
-1. 所有输出都必须通过 print() 语句输出
-2. 只输出最终答案，不要输出任何中间数据或调试信息
-3. 【绝对不要重新定义 web_search、ask_semantic 等预定义函数】
-4. 闲聊场景：生成 print("回复内容")
-5. 计算场景：生成计算逻辑并 print 结果
+1. 必须调用 set_output(data) 一次来返回最终结果
+2. 可以用 print() 输出调试信息（会显示在日志中，不影响结果）
+3. 【绝对不要重新定义 set_output、web_search、ask_semantic 等预定义函数】
+4. 闲聊场景：set_output("回复内容")
+5. 计算场景：计算后 set_output(result)
 6. 数据处理：可以使用 datetime, json, re, math 等标准库
 
-可用的特殊函数：
+核心API：
+- set_output(data): 返回最终结果，保持原始数据类型（dict, list, number, string等）
+  必须调用一次，否则报错。
+  示例:
+    result = {"total": 100, "items": [1, 2, 3]}
+    set_output(result)
+
+- get_output(): 获取当前输出结果，用于链式处理。
+  示例:
+    data = get_output()  # 获取之前设置的结果
+    processed = data * 2
+    set_output(processed)
+
+辅助函数：
 - ask_semantic(query: str) -> str: 用于处理语义理解、翻译、总结等需要 AI 的任务。
   直接返回文本结果。
   示例:
     result = ask_semantic("请总结这段文本的主旨")
-    print(result)
+    set_output(result)
 
 - web_search(query: str, num_results: int = 5) -> dict: 网络搜索获取实时信息。
   返回结构化数据: {"answer": "...", "results": [{"title": "...", "content": "...", "url": "..."}], "error": None}
   示例:
     data = web_search("今天的科技新闻")
     if data.get("error"):
-        print(f"搜索失败: {data['error']}")
+        set_output({"error": data['error']})
     else:
-        for r in data["results"]:
-            print(f"• {r['title']}")
-
-- safe_semantic(query): 装饰器，简化 ask_semantic 调用的语法糖。
+        set_output(data["results"])
 
 使用场景：
-- 纯逻辑/计算任务：直接用 Python 代码
-- 需要语义理解/翻译/总结：使用 ask_semantic()
+- 纯逻辑/计算任务：直接用 Python 代码，最后 set_output(result)
+- 需要语义理解/翻译/总结：使用 ask_semantic()，然后 set_output(result)
 - 需要查资料/事实信息：使用 web_search()，处理返回的 dict 数据
-- 混合任务：先获取信息，再做逻辑处理
+- 混合任务：先获取信息，再做逻辑处理，最后 set_output(result)
 
 重要：
 - 不要输出任何代码块之外的文字
@@ -524,16 +564,18 @@ def build_coder_prompt(plan: Plan, enable_self_check: bool | None = None) -> str
     base_prompt = """你是一个 Python 逻辑单元。你的回答必须仅包含一个 Python 代码块。
 
 【重要提示】以下函数已经预定义，直接调用即可，不要重新定义：
+- set_output(data): 返回最终结果（保持原始数据类型）
+- get_output(): 获取当前输出结果（用于链式处理）
 - web_search(query, num_results=5) -> dict: 网络搜索函数，返回结构化数据
 - ask_semantic(query) -> str: 语义处理函数，直接返回文本结果
 - safe_semantic(query): 装饰器
 
 规则：
-1. 所有输出都必须通过 print() 语句输出
-2. 只输出最终答案，不要输出任何中间数据或调试信息
-3. 【绝对不要重新定义 web_search、ask_semantic 等预定义函数】
-4. 闲聊场景：生成 print("回复内容")
-5. 计算场景：生成计算逻辑并 print 结果
+1. 必须调用 set_output(data) 一次来返回最终结果
+2. 可以用 print() 输出调试信息（会显示在日志中，不影响结果）
+3. 【绝对不要重新定义 set_output、web_search、ask_semantic 等预定义函数】
+4. 闲聊场景：set_output("回复内容")
+5. 计算场景：计算后 set_output(result)
 6. 数据处理：可以使用 datetime, json, re, math 等标准库
 """
 
@@ -569,7 +611,7 @@ def build_coder_prompt(plan: Plan, enable_self_check: bool | None = None) -> str
     if should_check:
         base_prompt += """
 【自检要求】（重要！）
-在 print() 输出前，请添加 assert 语句对关键结果进行校验。如果 assert 失败，系统会自动修复代码。
+在 set_output() 前，请添加 assert 语句对关键结果进行校验。如果 assert 失败，系统会自动修复代码。
 
 检查类型：
 1. 数值结果：类型和合理范围
@@ -597,16 +639,15 @@ def build_coder_prompt(plan: Plan, enable_self_check: bool | None = None) -> str
 data = web_search("Python 3.12 新特性")
 assert data.get("results"), "搜索无结果"  # 检查数据结构
 assert len(data["results"]) > 0, "未找到相关信息"
-for r in data["results"]:
-    print(f"• {r['title']}")
+set_output(data["results"])
 ```
 """
 
     base_prompt += """
 重要：
+- 必须调用 set_output(data) 一次返回最终结果
 - ask_semantic 直接返回文本结果，用于翻译、总结等语义任务
 - web_search 可获取网络信息，用于回答需要最新知识或具体事实的问题
-- @safe_semantic 只是语法糖，让代码更简洁
 - 不要输出任何代码块之外的文字
 - 只输出 ```python ... ``` 格式的代码"""
 
@@ -1545,17 +1586,105 @@ def extract_code(response: str) -> str | None:
     return None
 
 
+# =============================================================================
+# Phase 8: Structured Output (set_output API)
+# =============================================================================
+
+class OutputCollector:
+    """
+    Collect structured output from sandbox execution.
+
+    Replaces stdout interception with explicit set_output() API.
+    This preserves data types and enables thread-safe concurrent execution.
+    """
+
+    def __init__(self):
+        self._result = None
+        self._has_result = False
+        self._call_count = 0
+
+    def set_output(self, data) -> None:
+        """
+        Set the final output result (preserves data type).
+
+        Can only be called once. Raises RuntimeError if called multiple times.
+
+        Args:
+            data: Any Python data structure (dict, list, number, string, etc.)
+        """
+        self._call_count += 1
+        if self._call_count > 1:
+            raise RuntimeError("set_output() can only be called once per execution")
+        self._result = data
+        self._has_result = True
+
+    def get_output(self):
+        """
+        Get the current output result.
+
+        Useful for chained processing within the sandbox code.
+
+        Returns:
+            The data passed to set_output(), or None if not yet called.
+        """
+        return self._result
+
+    def has_output(self) -> bool:
+        """Check if set_output() has been called."""
+        return self._has_result
+
+
 def execute_code(code: str, client: OpenAI | None = None, provider: ProviderConfig | None = None) -> tuple[str, str]:
     """
     Execute Python code in a sandbox-like environment.
     Returns (stdout, error_message).
+
+    Note: For structured output, use execute_code_with_output() instead.
     """
+    result = execute_code_with_output(code, client, provider)
+    return result.stdout, result.error
+
+
+class ExecutionResult:
+    """Result of code execution with structured output support."""
+
+    def __init__(self):
+        self.output: any = None  # Structured output from set_output()
+        self.stdout: str = ""     # Captured stdout
+        self.stderr: str = ""     # Captured stderr
+        self.error: str = ""      # Error message if execution failed
+        self.has_output: bool = False  # Whether set_output() was called
+
+
+def execute_code_with_output(
+    code: str,
+    client: OpenAI | None = None,
+    provider: ProviderConfig | None = None
+) -> ExecutionResult:
+    """
+    Execute Python code with structured output support.
+
+    Returns ExecutionResult with:
+    - output: Data from set_output() (preserves type)
+    - stdout: Captured stdout (debug logs)
+    - stderr: Captured stderr
+    - error: Error message if execution failed
+    - has_output: Whether set_output() was called
+    """
+    result = ExecutionResult()
+
+    # Capture stdout and stderr
     old_stdout = sys.stdout
+    old_stderr = sys.stderr
     sys.stdout = io.StringIO()
+    sys.stderr = io.StringIO()
 
     # Get provider for model name (use passed provider or default)
     if provider is None:
         provider = get_provider()
+
+    # Create OutputCollector for structured output
+    collector = OutputCollector()
 
     # Create a partial function for ask_semantic with the client and model
     def make_ask_semantic(llm_client: OpenAI, model_name: str):
@@ -1569,8 +1698,8 @@ def execute_code(code: str, client: OpenAI | None = None, provider: ProviderConf
             """Decorator factory for semantic calls (syntax sugar)."""
             def decorator(func):
                 def wrapper(*args, **kwargs):
-                    result = ask_sem_fn(query)
-                    return func(result, *args, **kwargs)
+                    sem_result = ask_sem_fn(query)
+                    return func(sem_result, *args, **kwargs)
                 return wrapper
             return decorator
         return safe_semantic
@@ -1593,6 +1722,9 @@ def execute_code(code: str, client: OpenAI | None = None, provider: ProviderConf
         "random": __import__("random"),
         "collections": __import__("collections"),
         "itertools": __import__("itertools"),
+        # Inject structured output API
+        "set_output": collector.set_output,
+        "get_output": collector.get_output,
         # Inject ask_semantic and safe_semantic
         "ask_semantic": ask_semantic_fn,
         "safe_semantic": safe_semantic_decorator,
@@ -1602,12 +1734,24 @@ def execute_code(code: str, client: OpenAI | None = None, provider: ProviderConf
 
     try:
         exec(code, sandbox_globals)
-        output = sys.stdout.getvalue()
-        return output, ""
+        result.stdout = sys.stdout.getvalue()
+        result.stderr = sys.stderr.getvalue()
+
+        # Check for structured output (strict mode)
+        if collector.has_output():
+            result.output = collector.get_output()
+            result.has_output = True
+        else:
+            # Strict mode: set_output() must be called
+            result.error = "Error: set_output() was never called. You must call set_output(data) once to return the result."
+
     except Exception:
-        return "", traceback.format_exc()
+        result.error = traceback.format_exc()
     finally:
         sys.stdout = old_stdout
+        sys.stderr = old_stderr
+
+    return result
 
 
 def post_process_output(
@@ -1916,8 +2060,7 @@ def main():
     # ==========================================================================
     # Phase 2: Execute Code with Self-Healing Retry Loop
     # ==========================================================================
-    output = ""
-    error = ""
+    exec_result = None
     execution_error = None
 
     # Track self-healing statistics
@@ -1927,30 +2070,31 @@ def main():
 
     for exec_attempt in range(config.max_execution_retries):
         timer.start("Code Execute")
-        output, error = execute_code(code, client=client, provider=coder_provider)
+        exec_result = execute_code_with_output(code, client=client, provider=coder_provider)
         timer.stop()
 
-        if not error:
+        if not exec_result.error:
             break  # Execution successful
 
         # Execution failed, attempt self-healing
-        execution_error = error
+        execution_error = exec_result.error
         if exec_attempt < config.max_execution_retries - 1:
             self_heal_attempts += 1
             # Extract first line of error for summary
-            error_summary = error.split('\n')[0][:100] if error else "Unknown error"
+            error_summary = exec_result.error.split('\n')[0][:100] if exec_result.error else "Unknown error"
             self_heal_errors.append(error_summary)
 
             print(f"\n  Execution error, attempting self-heal ({exec_attempt + 1}/{config.max_execution_retries})...", file=sys.stderr)
 
             # Build error feedback for LLM to fix
             error_feedback = f"""代码执行时发生错误：
-{error}
+{exec_result.error}
 
 请修复上述错误，确保：
 1. 正确处理所有异常情况（如除零、索引越界、变量未定义等）
 2. 变量在使用前已定义
-3. 语法和逻辑正确
+3. 必须调用 set_output(data) 一次返回结果
+4. 语法和逻辑正确
 
 只输出修复后的代码，不要解释。"""
 
@@ -1988,9 +2132,9 @@ def main():
             final_code = code  # Track the latest code version
 
     # After all attempts, check if we still have an error
-    if execution_error and error:
+    if execution_error and exec_result and exec_result.error:
         print(f"\n经过 {config.max_execution_retries} 次自愈尝试，仍无法执行成功:", file=sys.stderr)
-        print(error, file=sys.stderr)
+        print(exec_result.error, file=sys.stderr)
         print(f"\n问题类型: 代码逻辑错误（非安全问题）", file=sys.stderr)
         print(f"建议: 检查代码逻辑或重新表述您的需求", file=sys.stderr)
         if args.show_code:
@@ -2014,20 +2158,38 @@ def main():
     elif config.post_process_enabled:
         should_post_process = True
 
-    if should_post_process and output.strip():
+    # Get output from structured result
+    output = exec_result.output if exec_result and exec_result.has_output else None
+    stdout = exec_result.stdout if exec_result else ""
+
+    # Format output for display
+    if output is not None:
+        # Structured output - format appropriately
+        if isinstance(output, (dict, list)):
+            import json as json_module
+            display_output = json_module.dumps(output, ensure_ascii=False, indent=2)
+        else:
+            display_output = str(output)
+    elif stdout.strip():
+        # Fallback to stdout if no structured output (shouldn't happen in strict mode)
+        display_output = stdout
+    else:
+        display_output = ""
+
+    if should_post_process and display_output.strip():
         print("Formatting output...", file=sys.stderr)
         timer.start("Post-Process")
-        output = post_process_output(
+        display_output = post_process_output(
             client,
             args.query,
-            output,
+            display_output,
             coder_model,
             format_hint=plan.output_format_hint if plan else "",
         )
         timer.stop()
 
     # Print result
-    print(output, end="")
+    print(display_output, end="")
 
     # Show timing report if requested
     if args.timing:
@@ -2043,6 +2205,8 @@ def main():
         # We'll use a different approach - write planner info to stderr before JSON output
         report = {
             "generated_code": final_code,
+            "structured_output": output,  # Structured output from set_output()
+            "output_type": type(output).__name__ if output is not None else None,
             "self_heal_attempts": self_heal_attempts,
             "self_heal_errors": self_heal_errors,
             "security_violations": security_retry_data.get("violations", []),

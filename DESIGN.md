@@ -192,7 +192,7 @@ except AssertionError as e:
     raise RuntimeError(f”Self-check failed: {e}”)
 ```
 
-### 🔜 Phase 8: 结构化输出 (set_output API)
+### ✅ Phase 8: 结构化输出 (set_output API) (已完成)
 
 **目标**：从 stdout 拦截转向结构化输出，支持被外部 Orchestrator 调用。
 
@@ -268,11 +268,11 @@ solve()
 - 多次调用 `set_output()` → 报错
 
 **任务分解**：
-- [ ] 实现 `OutputCollector` 类
-- [ ] 修改 `execute_code()` 注入 `set_output`/`get_output`
-- [ ] 更新 SYSTEM_PROMPT 引导 LLM 使用新 API
-- [ ] 更新测试用例
-- [ ] 更新 benchmark 测试
+- [x] 实现 `OutputCollector` 类
+- [x] 修改 `execute_code()` 注入 `set_output`/`get_output`
+- [x] 更新 SYSTEM_PROMPT 引导 LLM 使用新 API
+- [x] 更新测试用例
+- [x] 更新 benchmark 测试
 
 ---
 
