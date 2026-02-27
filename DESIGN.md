@@ -192,6 +192,88 @@ except AssertionError as e:
     raise RuntimeError(f”Self-check failed: {e}”)
 ```
 
+### 🔜 Phase 8: 结构化输出 (set_output API)
+
+**目标**：从 stdout 拦截转向结构化输出，支持被外部 Orchestrator 调用。
+
+**问题分析**：
+1. **类型丢失**：`{“users”: [...]}` → 字符串 → 需要 `json.loads()` 重新解析
+2. **日志混杂**：print() 混合调试信息和最终结果，无法区分
+3. **并发不安全**：`sys.stdout` 重定向在多线程环境下是灾难
+4. **压抑 CoT**：强制”不能输出过程信息”，压抑了 LLM 的思维链
+
+**实现计划**：
+
+```python
+# 新增 OutputCollector 类
+class OutputCollector:
+    “””收集沙箱执行的最终结果”””
+    def __init__(self):
+        self._result = None
+        self._has_result = False
+        self._call_count = 0
+
+    def set_output(self, data):
+        “””设置最终输出结果（保持类型）”””
+        self._call_count += 1
+        if self._call_count > 1:
+            raise RuntimeError(“set_output() can only be called once”)
+        self._result = data
+        self._has_result = True
+
+    def get_output(self):
+        “””获取当前输出结果（供代码内部链式处理）”””
+        return self._result
+
+    def has_output(self):
+        return self._has_result
+```
+
+**沙箱注入**：
+```python
+sandbox_globals = {
+    “set_output”: collector.set_output,
+    “get_output”: collector.get_output,
+    # ... existing ...
+}
+```
+
+**代码示例**：
+```python
+def solve():
+    # 调试输出（到 stderr，不影响结果）
+    print(“Processing...”, file=sys.stderr)
+
+    # 计算复杂数据结构
+    result = {
+        “total”: 100,
+        “items”: [{“id”: 1, “name”: “A”}]
+    }
+
+    # 返回结果（保持类型）
+    set_output(result)
+
+solve()
+```
+
+**Prompt 变化**：
+```
+- 使用 set_output(data) 返回最终结果（保持原始数据类型）
+- 可以使用 print() 输出调试信息（显示在日志中）
+- 必须调用 set_output() 一次，否则报错
+```
+
+**错误处理**：
+- 未调用 `set_output()` → 报错（严格模式）
+- 多次调用 `set_output()` → 报错
+
+**任务分解**：
+- [ ] 实现 `OutputCollector` 类
+- [ ] 修改 `execute_code()` 注入 `set_output`/`get_output`
+- [ ] 更新 SYSTEM_PROMPT 引导 LLM 使用新 API
+- [ ] 更新测试用例
+- [ ] 更新 benchmark 测试
+
 ---
 
 ## 7. 总结：为什么要这么做？
