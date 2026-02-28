@@ -129,6 +129,10 @@ def run_upa_test(
         planner_confidence = None
         planner_skip_planning = True
         planner_timing_ms = 0.0
+        # Phase 9: Initialize logic_steps before JSON parsing
+        logic_steps = []
+        logic_steps_count = 0
+        uses_logic_contract = False
 
         json_match = re.search(r"__UPA_JSON__(.+)$", stderr, re.MULTILINE | re.DOTALL)
         if json_match:
@@ -327,6 +331,10 @@ def run_hybrid_test(
         planner_confidence = None
         planner_skip_planning = True
         planner_timing_ms = 0.0
+        # Phase 9: Initialize logic_steps before JSON parsing
+        logic_steps = []
+        logic_steps_count = 0
+        uses_logic_contract = False
 
         json_match = re.search(r"__UPA_JSON__(.+)$", stderr, re.MULTILINE | re.DOTALL)
         if json_match:
