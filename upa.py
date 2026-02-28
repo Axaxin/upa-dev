@@ -958,6 +958,7 @@ def run_planner(
     timeout: float = 5.0,
     max_retries: int = 3,
     base_delay: float = 1.0,
+    max_repair_attempts: int = 2,  # Phase 10.5: Multi-round repair
 ) -> Plan:
     """
     Run planner with comprehensive fallback handling.
@@ -1069,44 +1070,65 @@ def run_planner(
 
         plan = parse_plan_from_json(content)
 
-        # Layer 4: LLM Repair - If parsing fails, send error back to LLM for fix (Phase 10.5)
+        # Layer 4: LLM Repair - Multi-round repair for better reliability (Phase 10.5)
         if plan is None:
-            print(f"Planner Parse Error: JSON parsing failed, requesting LLM repair...", file=sys.stderr)
+            print(f"Planner Parse Error: JSON parsing failed, requesting LLM repair (max {max_repair_attempts} attempts)...", file=sys.stderr)
             print(f"  Raw response: {content[:200]}...", file=sys.stderr)
 
-            # Build repair prompt with error context
-            repair_prompt = PLANNER_REPAIR_PROMPT.format(
-                error="无法解析为有效 JSON 或字段类型错误",
-                original_output=content[:800]  # Truncate to avoid token limits
-            )
+            # Keep track of repair history for multi-round repair
+            repair_history = [content]
+            repair_succeeded = False
 
-            # Send repair request to LLM
-            repair_messages = [
-                {"role": "system", "content": PLANNER_SYSTEM_PROMPT},
-                {"role": "user", "content": query},
-                {"role": "assistant", "content": content},
-                {"role": "user", "content": repair_prompt}
-            ]
+            for repair_attempt in range(max_repair_attempts):
+                # Build repair prompt with escalating urgency
+                if repair_attempt == 0:
+                    error_msg = "无法解析为有效 JSON 或字段类型错误"
+                else:
+                    error_msg = f"第{repair_attempt+1}次修复仍然失败！请仔细检查 JSON 格式，确保：数组是 [...]、对象是{{...}}、布尔值是 true/false、数字不加引号"
 
-            request_params["messages"] = repair_messages
-            repair_response = client.chat.completions.create(**request_params)
-            repair_content = repair_response.choices[0].message.content or ""
+                repair_prompt = PLANNER_REPAIR_PROMPT.format(
+                    error=error_msg,
+                    original_output=repair_history[-1][:800]  # Show last failed attempt
+                )
 
-            print(f"Planner Repair: Received repair response ({len(repair_content)} chars)", file=sys.stderr)
+                # Build conversation history with all previous attempts
+                repair_messages = [
+                    {"role": "system", "content": PLANNER_SYSTEM_PROMPT},
+                    {"role": "user", "content": query},
+                ]
+                # Add all failed attempts as context
+                for i, failed_output in enumerate(repair_history):
+                    repair_messages.append({"role": "assistant", "content": failed_output})
+                    if i == len(repair_history) - 1:
+                        repair_messages.append({"role": "user", "content": repair_prompt})
 
-            # Try to extract JSON from repair response
-            repair_json_match = re.search(r'\{[^{}]*\{.*\}[^{}]*\}|\{[^{}]+\}', repair_content, re.DOTALL)
-            if repair_json_match:
-                repair_content = repair_json_match.group(0)
+                # Use lower temperature for more deterministic repair
+                request_params["messages"] = repair_messages
+                request_params["temperature"] = 0.1  # More deterministic for repair
+                repair_response = client.chat.completions.create(**request_params)
+                repair_content = repair_response.choices[0].message.content or ""
 
-            # Try parsing the repaired content
-            plan = parse_plan_from_json(repair_content)
+                print(f"Planner Repair attempt {repair_attempt+1}/{max_repair_attempts}: Received {len(repair_content)} chars", file=sys.stderr)
 
-            if plan is None:
-                print(f"Planner Repair: Repair also failed, using default plan", file=sys.stderr)
-                return create_default_plan(intent="unknown", confidence=0.0)
-            else:
-                print(f"Planner Repair: Repair succeeded!", file=sys.stderr)
+                # Try to extract JSON from repair response
+                repair_json_match = re.search(r'\{[^{}]*\{.*\}[^{}]*\}|\{[^{}]+\}', repair_content, re.DOTALL)
+                if repair_json_match:
+                    repair_content = repair_json_match.group(0)
+
+                # Try parsing the repaired content
+                plan = parse_plan_from_json(repair_content)
+
+                if plan is not None:
+                    print(f"Planner Repair: Success on attempt {repair_attempt+1}!", file=sys.stderr)
+                    repair_succeeded = True
+                    break
+                else:
+                    print(f"Planner Repair: Attempt {repair_attempt+1} failed, trying again..." if repair_attempt < max_repair_attempts - 1 else "All repair attempts failed", file=sys.stderr)
+                    repair_history.append(repair_content)  # Add to history for next attempt context
+
+            if not repair_succeeded:
+                print(f"Planner Repair: All {max_repair_attempts} attempts failed, using default plan", file=sys.stderr)
+                return create_default_plan(skip_planning=True, confidence=0.0)
 
         # Validate the plan
         plan = validate_plan(plan)
