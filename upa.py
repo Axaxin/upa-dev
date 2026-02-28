@@ -956,6 +956,8 @@ def run_planner(
     query: str,
     model: str,
     timeout: float = 5.0,
+    max_retries: int = 3,
+    base_delay: float = 1.0,
 ) -> Plan:
     """
     Run planner with comprehensive fallback handling.
@@ -965,11 +967,16 @@ def run_planner(
         query: User query
         model: Model to use for planning
         timeout: Request timeout in seconds
+        max_retries: Maximum retry attempts for rate limit errors (default 3)
+        base_delay: Base delay in seconds for exponential backoff (default 1.0)
 
     Returns:
         Plan object (may be a default plan on failure)
     """
+    import random
     import signal
+    from httpx import ProxyError
+    from openai import APIConnectionError, APIStatusError
 
     def timeout_handler(signum, frame):
         raise TimeoutError("Planner call timed out")
@@ -1011,7 +1018,44 @@ def run_planner(
             elif 'gemini' in model_lower:
                 request_params["response_format"] = {"type": "json_object"}
 
-        response = client.chat.completions.create(**request_params)
+        # Retry loop with exponential backoff (Phase 10.5: Rate limit handling)
+        last_exception = None
+        for attempt in range(max_retries + 1):
+            try:
+                response = client.chat.completions.create(**request_params)
+                break  # Success, exit retry loop
+
+            except (APIConnectionError, ProxyError, APIStatusError) as e:
+                last_exception = e
+                status_code = getattr(e, 'status_code', None)
+
+                # Check if this is a rate limit or service unavailable error
+                is_retryable = (
+                    status_code in (429, 503, 502, 504) or
+                    "rate limit" in str(e).lower() or
+                    "throttl" in str(e).lower() or
+                    "service unavailable" in str(e).lower() or
+                    "connection error" in str(e).lower()
+                )
+
+                if is_retryable and attempt < max_retries:
+                    # Exponential backoff with jitter
+                    delay = base_delay * (2 ** attempt) + random.uniform(0, 0.5)
+                    print(f"Planner API rate limit/connection error, retrying in {delay:.1f}s... ({attempt+1}/{max_retries})", file=sys.stderr)
+                    time.sleep(delay)
+                else:
+                    print(f"Planner API error after {attempt+1} attempts: {type(e).__name__}: {str(e)[:100]}", file=sys.stderr)
+                    # Fall back to default plan
+                    return create_default_plan(skip_planning=True)
+
+            except Exception as e:
+                # Non-retryable error, use default plan
+                print(f"Planner unexpected error: {type(e).__name__}: {e}", file=sys.stderr)
+                return create_default_plan(skip_planning=True)
+
+        # If all retries failed but no exception was raised, use default plan
+        if last_exception and attempt == max_retries:
+            return create_default_plan(skip_planning=True)
 
         content = response.choices[0].message.content or ""
 
@@ -2279,6 +2323,8 @@ def generate_code(
     error_feedback: str | None = None,
     conversation_history: list | None = None,
     system_prompt: str | None = None,
+    max_retries: int = 3,
+    base_delay: float = 1.0,
 ) -> tuple[str, list]:
     """
     Call LLM to generate Python code for the query.
@@ -2290,10 +2336,16 @@ def generate_code(
         error_feedback: Optional error message from previous attempt
         conversation_history: Previous messages for retry context
         system_prompt: Optional custom system prompt (defaults to SYSTEM_PROMPT)
+        max_retries: Maximum retry attempts for rate limit errors (default 3)
+        base_delay: Base delay in seconds for exponential backoff (default 1.0)
 
     Returns:
         (response_content, updated_conversation_history)
     """
+    import random
+    from httpx import ProxyError
+    from openai import APIConnectionError, APIStatusError
+
     # Build message list
     if conversation_history is None:
         messages = [
@@ -2314,13 +2366,47 @@ def generate_code(
             "content": query
         })
 
-    response = client.chat.completions.create(
-        model=model,
-        messages=messages,
-        temperature=0.7,
-    )
+    # Retry loop with exponential backoff (Phase 10.5: Rate limit handling)
+    last_exception = None
+    for attempt in range(max_retries + 1):
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=0.7,
+            )
+            return response.choices[0].message.content or "", messages
 
-    return response.choices[0].message.content or "", messages
+        except (APIConnectionError, ProxyError, APIStatusError) as e:
+            last_exception = e
+            status_code = getattr(e, 'status_code', None)
+
+            # Check if this is a rate limit or service unavailable error
+            is_retryable = (
+                status_code in (429, 503, 502, 504) or
+                "rate limit" in str(e).lower() or
+                "throttl" in str(e).lower() or
+                "service unavailable" in str(e).lower() or
+                "connection error" in str(e).lower()
+            )
+
+            if is_retryable and attempt < max_retries:
+                # Exponential backoff with jitter
+                delay = base_delay * (2 ** attempt) + random.uniform(0, 0.5)
+                print(f"API rate limit/connection error, retrying in {delay:.1f}s... ({attempt+1}/{max_retries})", file=sys.stderr)
+                time.sleep(delay)
+            else:
+                print(f"API error after {attempt+1} attempts: {type(e).__name__}: {str(e)[:100]}", file=sys.stderr)
+                raise
+
+        except Exception as e:
+            # Non-retryable error, re-raise immediately
+            print(f"Unexpected error during API call: {type(e).__name__}: {e}", file=sys.stderr)
+            raise
+
+    # Should not reach here, but just in case
+    print(f"Max retries exceeded, last error: {last_exception}", file=sys.stderr)
+    raise last_exception
 
 
 def extract_code(response: str) -> str | None:
