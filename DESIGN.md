@@ -343,7 +343,7 @@ set_output(answer)
 目标：85% × 90% × 80%  ≈ 61%
 ```
 
-### 🔄 Phase 10: Prompt 优化专项 (计划中)
+### ✅ Phase 10: Prompt 优化专项 (已完成)
 
 **目标**：分层 Prompt 设计，减少 MMLU 特化程度，提高通用性和可维护性。
 
@@ -461,6 +461,55 @@ INTENT_RULES = {
 - 更易于维护和扩展
 - Planner 判断准确率提升至 85%
 
+**实现详情**：
+
+#### 10.4 Planner LLM 修复机制 (Layer 4)
+
+**问题**: 当 Planner 输出无效 JSON 时，直接返回默认计划会丢失 LLM 的原始意图。
+
+**解决方案**: 发送解析错误回 LLM 进行自我修复。
+
+```python
+# 4 层解析策略
+# Layer 1: Fast path - direct parsing
+# Layer 2: String repair - handle stringified JSON fields
+# Layer 3: Regex extraction - field extraction as fallback
+# Layer 4: LLM Repair - send error back to LLM for fix (NEW!)
+
+if plan is None:
+    repair_prompt = PLANNER_REPAIR_PROMPT.format(
+        error="无法解析为有效 JSON",
+        original_output=content[:800]
+    )
+    # Send conversation history: [system, user, assistant, repair_request]
+    repair_response = client.chat.completions.create(...)
+    plan = parse_plan_from_json(repair_response.content)
+```
+
+#### 10.5 API 限流重试机制
+
+**问题**: 高并发基准测试导致 API 限流（503, 429, Connection errors）。
+
+**解决方案**: 指数退避重试 + jitter。
+
+```python
+def generate_code(client, query, model, max_retries=3, base_delay=1.0):
+    for attempt in range(max_retries + 1):
+        try:
+            return client.chat.completions.create(...)
+        except (APIConnectionError, ProxyError, APIStatusError) as e:
+            if is_retryable(e) and attempt < max_retries:
+                delay = base_delay * (2 ** attempt) + random.uniform(0, 0.5)
+                time.sleep(delay)
+            else:
+                raise
+```
+
+**重试策略**:
+- 退避公式：`delay = 1s × 2^attempt + jitter(0-0.5s)`
+- 处理错误：429, 503, 502, 504, ConnectionError
+- 应用位置：`generate_code()`, `run_planner()`
+
 ---
 
 ### 📋 Phase 11: Code Memory & Caching (延后)
@@ -482,5 +531,5 @@ INTENT_RULES = {
 | Phase 7 | 代码自检机制 | ✅ 完成 |
 | Phase 8 | 结构化输出 (set_output API) | ✅ 完成 |
 | Phase 9 | Logic Contract | ✅ 完成 |
-| **Phase 10** | **Prompt 优化专项** | 🔄 计划中 |
+| **Phase 10** | **Prompt 优化专项** | ✅ 完成 |
 | Phase 11 | Code Memory & Caching | ⏸️ 延后 |
