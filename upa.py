@@ -293,6 +293,268 @@ summarize("长文本...")
 }
 
 
+# =============================================================================
+# Phase 10: Modular Prompt Architecture
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# 10.1 Core Rules Layer (~800 chars)
+# -----------------------------------------------------------------------------
+
+CORE_RULES_PROMPT = """你是一个 Python 逻辑单元。你的回答必须仅包含一个 Python 代码块。
+
+【预定义函数】直接调用，不要重新定义：
+- set_output(data): 返回最终结果（必须调用一次）
+- get_output(): 获取当前输出结果（用于链式处理）
+- web_search(query, num_results=5) -> dict: 网络搜索，返回 {"results": [...], "error": null}
+- ask_semantic(query) -> str: 语义处理（翻译、总结、情感分析），直接返回文本
+
+【核心规则】
+1. 必须调用 set_output(data) 一次来返回最终结果
+2. 可以用 print() 输出调试信息（显示在日志中，不影响结果）
+3. 禁止重新定义预定义函数
+4. 如果调用工具，必须解析并利用其返回结果，禁止忽略
+
+数据处理：可使用 datetime, json, re, math 等标准库
+
+重要：只输出 ```python ... ``` 格式的代码，不要其他文字。"""
+
+# -----------------------------------------------------------------------------
+# 10.2 Task Rules Registry (Dynamic Injection)
+# -----------------------------------------------------------------------------
+
+# 多选题检测规则
+MULTIPLE_CHOICE_RULES = """
+【多选题输出规则】如果题目有选项（A/B/C/D），必须输出选项字母，而非计算结果本身：
+- 错误：计算 12 × 8 = 96，set_output(96)
+- 正确：计算 12 × 8 = 96，对应选项 B，set_output("B")
+- 必须将计算结果/事实与选项进行映射，输出正确选项字母"""
+
+# 工具使用规范
+TOOL_USAGE_RULES = """
+【工具使用规范】
+- web_search: 用于查询实时信息、事实核查。返回 dict，需解析 data["results"]
+- ask_semantic: 用于翻译、总结、情感分析等语义任务。直接返回文本
+- 禁止调用工具后用"基于知识"等借口忽略结果"""
+
+# 思维链推理规则
+COT_REASONING_RULES = """
+【思维链 CoT】对于需要推理的问题，要求 ask_semantic 先分析再结论：
+- "请先分析每个选项与搜索结果的匹配程度，然后得出结论"
+- "先逐步推理，最后只返回选项字母：A/B/C/D"
+"""
+
+# 自检规则 (medium/complex 任务)
+SELF_CHECK_RULES = """
+【自检要求】在 set_output() 前，添加 assert 语句校验关键结果：
+- 数值：assert isinstance(result, (int, float))
+- 范围：assert 0 <= result <= 1000000
+- 非空：assert len(results) > 0
+- 格式：assert re.match(r'\\d{4}-\\d{2}-\\d{2}', date_str)"""
+
+
+def detect_multiple_choice(query: str) -> bool:
+    """
+    检测问题是否为多选题格式。
+
+    Args:
+        query: 用户输入的问题文本
+
+    Returns:
+        True 如果检测到多选题格式，False 否则
+    """
+    patterns = [
+        # A. B. C. D. 格式（中英文句号、括号）
+        r'[A-D][\.、\)）]\s*[\u4e00-\u9fa5\w]',  # A. xxx B. xxx
+        # 连续选项格式
+        r'[A-D][\.、\)）][^A-D]*[A-D][\.、\)）]',  # A. ... B. ...
+        # 中文选项格式
+        r'选项\s*[A-D]',  # 选项A、选项B
+        # "A是..." 格式
+        r'[A-D]\s*[是为]',  # A是... B为...
+        # 多选题明确标记
+        r'[A-D]\.\s*[^\n]+\n\s*[A-D]\.',  # 多行选项
+        # 括号内选项
+        r'\([A-D]\)',  # (A) (B) (C) (D)
+        # 题目末尾选项列表
+        r'[？?]\s*[A-D][\.、]',  # ...？A. B. C. D.
+    ]
+
+    for pattern in patterns:
+        if re.search(pattern, query, re.IGNORECASE):
+            return True
+
+    # 检查是否有至少2个不同选项出现
+    options_found = set(re.findall(r'\b[A-D]\b', query.upper()))
+    if len(options_found) >= 2:
+        return True
+
+    return False
+
+
+def detect_intent_features(query: str) -> dict[str, bool]:
+    """
+    检测查询的意图特征，用于辅助 Planner 分类。
+
+    Returns:
+        特征字典，包含各意图的正负特征检测结果
+    """
+    features = {
+        # computation 特征
+        "has_math_expr": bool(re.search(r'\d+\s*[\+\-\*/\^=]', query)),
+        "has_calc_keyword": bool(re.search(r'计算|求.*值|等于|斐波那契|素数|阶乘', query)),
+        "is_pure_math": bool(re.match(r'^[\d\s\+\-\*/\^\.\(\)]+$', query.strip())),
+
+        # semantic 特征
+        "has_translate": bool(re.search(r'翻译|translate', query, re.IGNORECASE)),
+        "has_summarize": bool(re.search(r'总结|摘要|概括|summarize', query, re.IGNORECASE)),
+        "has_sentiment": bool(re.search(r'情感|态度|sentiment', query, re.IGNORECASE)),
+        "has_polish": bool(re.search(r'润色|改写|优化.*文字', query)),
+
+        # multi_step / web_search 特征
+        "needs_fact_check": bool(re.search(r'是谁|什么是|哪个|哪里|首都|提出者|发明者', query)),
+        "needs_realtime": bool(re.search(r'最新|今天|今年|近期|当前|现在', query)),
+        "has_question_word": bool(re.search(r'谁|什么|哪|如何|为什么|怎样', query)),
+
+        # simple_chat 特征
+        "is_greeting": bool(re.match(r'^[你好吗嗨嘿嗯]+[！!？?。.，,]*$', query.strip())),
+        "is_thanks": bool(re.match(r'^(谢谢|感谢|thanks|thank you)', query.strip(), re.IGNORECASE)),
+        "is_short": len(query.strip()) <= 3,
+
+        # multiple_choice 特征
+        "is_multiple_choice": detect_multiple_choice(query),
+    }
+
+    return features
+
+
+def infer_intent_from_features(features: dict[str, bool], query: str) -> tuple[str, str]:
+    """
+    根据特征推断意图和复杂度。
+
+    Returns:
+        (intent, complexity) 元组
+    """
+    # simple_chat: 问候、感谢、超短输入
+    if features["is_greeting"] or features["is_thanks"] or features["is_short"]:
+        return "simple_chat", "trivial"
+
+    # computation: 数学表达式、计算关键词
+    if features["has_math_expr"] or features["has_calc_keyword"]:
+        # 检查是否混合语义任务
+        if features["has_translate"] or features["has_summarize"]:
+            return "hybrid", "medium"
+        return "computation", "simple"
+
+    # semantic: 翻译、总结、情感分析
+    if features["has_translate"] or features["has_summarize"] or features["has_sentiment"]:
+        return "semantic", "simple"
+
+    # multi_step: 需要事实核查或实时信息
+    if features["needs_fact_check"] or features["needs_realtime"]:
+        if features["is_multiple_choice"]:
+            return "multi_step", "medium"
+        return "multi_step", "simple"
+
+    # hybrid: 混合特征
+    if features["has_question_word"] and features["has_math_expr"]:
+        return "hybrid", "medium"
+
+    # 默认
+    return "unknown", "simple"
+
+
+# -----------------------------------------------------------------------------
+# 10.3 Intent Rules for Planner Enhancement
+# -----------------------------------------------------------------------------
+
+INTENT_CLASSIFICATION_RULES = {
+    "computation": {
+        "positive": [
+            r'\d+\s*[\+\-\*/\^]',  # 数学表达式
+            r'计算', r'求.*值', r'等于',
+            r'斐波那契', r'素数', r'阶乘', r'排序', r'统计',
+            r'最大值', r'最小值', r'平均值', r'方差',
+        ],
+        "negative": [
+            r'翻译', r'总结', r'情感', r'是谁', r'什么是',
+            r'润色', r'改写', r'润色',
+        ],
+    },
+    "semantic": {
+        "positive": [
+            r'翻译', r'translate',
+            r'总结', r'摘要', r'概括', r'summarize',
+            r'情感', r'态度', r'sentiment',
+            r'润色', r'改写', r'优化.*文字',
+        ],
+        "negative": [
+            r'\d+\s*[\+\-\*/\^]', r'计算', r'等于',
+        ],
+    },
+    "multi_step": {
+        "positive": [
+            r'是谁', r'是谁提出', r'发明者', r'提出者',
+            r'什么是.*概念', r'首都是哪', r'哪里是',
+            r'最新', r'今天', r'今年', r'近期',
+            r'哪个.*正确', r'下列.*说法',
+        ],
+        "requires_tools": ["web_search"],
+    },
+    "simple_chat": {
+        "positive": [
+            r'^[你好吗嗨嘿嗯]+[！!？?。.，,]*$',
+            r'^(谢谢|感谢|thanks)',
+        ],
+        "negative": [
+            r'\?', r'？',  # 包含问号
+        ],
+    },
+}
+
+# -----------------------------------------------------------------------------
+# 10.4 Tool Selection Rules for Planner
+# -----------------------------------------------------------------------------
+
+TOOL_SELECTION_RULES = {
+    "web_search": {
+        "use_when": [
+            "查询实时信息（新闻、股价、天气）",
+            "事实核查（历史事件、人物、地点）",
+            "概念解释（专业术语、科学概念）",
+            "需要最新知识的场景",
+        ],
+        "avoid_when": [
+            "纯数学计算",
+            "翻译、总结等语义任务",
+            "简单问候闲聊",
+            "逻辑推理（不涉及外部事实）",
+        ],
+    },
+    "ask_semantic": {
+        "use_when": [
+            "翻译任务",
+            "文本总结、摘要",
+            "情感分析、态度判断",
+            "文本润色、改写",
+            "需要语义理解的场景",
+        ],
+        "avoid_when": [
+            "纯数学计算",
+            "简单问候闲聊",
+            "事实查询（应用 web_search）",
+        ],
+    },
+    "none": {
+        "use_when": [
+            "简单问候、感谢",
+            "纯数学表达式",
+            "直接可回答的问题",
+        ],
+    },
+}
+
+
 # Planner System Prompt
 PLANNER_SYSTEM_PROMPT = """你是一个任务规划器。分析用户查询并输出结构化的执行计划。
 
@@ -380,17 +642,35 @@ requires_post_processing 判断规则：
 
 
 def is_trivial_query(query: str) -> bool:
-    """Detect queries that don't need planning."""
-    trivial_patterns = [
+    """Detect queries that don't need planning (Phase 10 enhanced)."""
+    query = query.strip()
+
+    # Use feature detection for more accurate trivial detection
+    features = detect_intent_features(query)
+
+    # Trivial if: greeting, thanks, or very short non-question
+    if features["is_greeting"] or features["is_thanks"]:
+        return True
+
+    # Very short queries (<=3 chars) that are not questions
+    if features["is_short"] and not features["has_question_word"]:
+        return True
+
+    # Pure math expressions (no semantic content)
+    if features["is_pure_math"]:
+        return True
+
+    # Legacy patterns for edge cases
+    legacy_patterns = [
         r'^[你好吗嗨嘿嗯]+[！!？?。.，,]*$',  # Simple greetings
         r'^(谢谢|感谢|thanks|thank you)',  # Thank you
-        r'^[0-9+\-*/\s().ps()]+$',  # Pure math expression (including ^ for power)
-        r'^.{1,3}$',  # Very short queries
+        r'^[0-9+\-*/\s().^]+$',  # Pure math expression
     ]
 
-    for pattern in trivial_patterns:
-        if re.match(pattern, query.strip(), re.IGNORECASE):
+    for pattern in legacy_patterns:
+        if re.match(pattern, query, re.IGNORECASE):
             return True
+
     return False
 
 
@@ -893,146 +1173,74 @@ elif result == 116:
 - 只输出 ```python ... ``` 格式的代码"""
 
 
-def build_coder_prompt(plan: Plan, enable_self_check: bool | None = None) -> str:
-    """Build optimized SYSTEM_PROMPT based on plan.
+def build_coder_prompt(plan: Plan, enable_self_check: bool | None = None, query: str = "") -> str:
+    """Build optimized SYSTEM_PROMPT based on plan using modular architecture (Phase 10).
 
     Args:
         plan: Planner's output with intent, complexity, etc.
         enable_self_check: Override for self-check requirement.
             If None, uses plan.complexity to determine.
+        query: Original user query for multiple-choice detection.
     """
-    # If skip_planning, use static prompt
+    # If skip_planning, use static prompt (backward compatibility)
     if plan.skip_planning:
         return STATIC_CODER_PROMPT
 
     # Check if logic_steps are provided (Phase 9: Logic Contract)
     if plan.logic_steps:
-        return build_logic_contract_prompt(plan, enable_self_check)
+        return build_logic_contract_prompt(plan, enable_self_check, query)
 
-    # Legacy path: original prompt construction
-    base_prompt = """你是一个 Python 逻辑单元。你的回答必须仅包含一个 Python 代码块。
+    # Phase 10: Modular prompt construction
+    prompt_parts = [CORE_RULES_PROMPT]
 
-【重要提示】以下函数已经预定义，直接调用即可，不要重新定义：
-- set_output(data): 返回最终结果（保持原始数据类型）
-- get_output(): 获取当前输出结果（用于链式处理）
-- web_search(query, num_results=5) -> dict: 网络搜索函数，返回结构化数据
-- ask_semantic(query) -> str: 语义处理函数，直接返回文本结果
-- safe_semantic(query): 装饰器
+    # Detect multiple choice from query or plan
+    is_multiple_choice = detect_multiple_choice(query) if query else False
 
-规则：
-1. 必须调用 set_output(data) 一次来返回最终结果
-2. 可以用 print() 输出调试信息（会显示在日志中，不影响结果）
-3. 【绝对不要重新定义 set_output、web_search、ask_semantic 等预定义函数】
-4. 【关键】如果调用了工具，必须解析并利用其返回结果：
-   - 从 data["results"] 或返回值中提取具体信息
-   - 基于提取的信息得出结论
-   - 禁止调用工具后用"基于知识"等借口忽略结果
-5. 闲聊场景：set_output("回复内容")
-6. 计算场景：计算后 set_output(result)
-7. 数据处理：可以使用 datetime, json, re, math 等标准库
-"""
+    # Inject multiple choice rules if detected
+    if is_multiple_choice:
+        prompt_parts.append(MULTIPLE_CHOICE_RULES)
 
-    # Dynamically add tool documentation
+    # Inject tool usage rules if tools are required
     if plan.required_tools:
-        base_prompt += "\n可用的特殊函数：\n"
+        prompt_parts.append(TOOL_USAGE_RULES)
+
+        # Add specific tool documentation
+        tool_docs = "\n【工具详情】\n"
         for tool_name in plan.required_tools:
             if tool_name in TOOL_REGISTRY:
-                base_prompt += TOOL_REGISTRY[tool_name].usage_doc + "\n"
+                tool_docs += TOOL_REGISTRY[tool_name].usage_doc + "\n"
+        prompt_parts.append(tool_docs)
 
-    # Add tool usage examples (critical for ensuring tools are used correctly)
-    if plan.required_tools:
-        base_prompt += """
-【工具使用规范】
-❌ 错误：调用工具后忽略结果
-   data = web_search("问题")
-   # 基于知识：答案是X
-   set_output("X")  # 错误！没用搜索结果
-
-✅ 正确：解析并利用工具结果
-   data = web_search("问题")
-   content = data["results"][0]["content"] if data.get("results") else ""
-   # 从content中提取答案
-   if "关键词" in content:
-       set_output("正确答案")
-   else:
-       set_output(ask_semantic("备用问题"))
-"""
+    # Inject self-check rules for medium/complex tasks
+    should_check = enable_self_check if enable_self_check is not None else plan.complexity in ("medium", "complex")
+    if should_check:
+        prompt_parts.append(SELF_CHECK_RULES)
 
     # Add relevant module hints
     if plan.relevant_modules:
-        base_prompt += f"\n推荐使用的标准库：{', '.join(plan.relevant_modules)}\n"
+        prompt_parts.append(f"\n推荐标准库：{', '.join(plan.relevant_modules)}")
 
-    # Add task-specific hints
+    # Add coding hints
     if plan.coding_hints:
-        base_prompt += "\n编码提示：\n"
-        for hint in plan.coding_hints:
-            base_prompt += f"- {hint}\n"
+        hints = "\n编码提示：\n" + "\n".join(f"- {h}" for h in plan.coding_hints)
+        prompt_parts.append(hints)
 
     # Add step breakdown for complex tasks
     if plan.steps and len(plan.steps) > 1:
-        base_prompt += "\n执行步骤：\n"
-        for step in plan.steps:
-            base_prompt += f"{step.order}. {step.description}\n"
+        steps_str = "\n执行步骤：\n" + "\n".join(f"{s.order}. {s.description}" for s in plan.steps)
+        prompt_parts.append(steps_str)
 
-    # Add output format hint
-    base_prompt += f"\n期望输出类型：{plan.expected_output_type}\n"
-
-    # Add self-check requirements if enabled (TDD in Agent)
-    # Use override if provided, otherwise check complexity
-    should_check = enable_self_check if enable_self_check is not None else plan.complexity in ("medium", "complex")
-    if should_check:
-        base_prompt += """
-【自检要求】（重要！）
-在 set_output() 前，请添加 assert 语句对关键结果进行校验。如果 assert 失败，系统会自动修复代码。
-
-检查类型：
-1. 数值结果：类型和合理范围
-   assert isinstance(result, (int, float)), f"类型错误: {type(result)}"
-   assert 0 <= result <= 1000000, f"结果超出合理范围: {result}"
-
-2. 列表/字典结果：非空、元素类型、结构正确
-   assert len(results) > 0, "结果为空"
-   assert all(isinstance(x, dict) for x in results), "元素类型错误"
-
-3. 字符串结果：非空、长度合理
-   assert len(text) > 0, "结果为空"
-   assert len(text) < 10000, "输出过长"
-
-4. 格式检查：确保输出符合预期格式
-   assert "@" in email, "邮箱格式无效"
-   assert re.match(r'\\d{4}-\\d{2}-\\d{2}', date_str), "日期格式错误"
-
-5. 业务逻辑：结果符合业务规则
-   assert total == sum(items), "汇总不匹配"
-   assert max_val >= min_val, "最大值小于最小值"
-
-示例：
-```python
-data = web_search("Python 3.12 新特性")
-assert data.get("results"), "搜索无结果"  # 检查数据结构
-assert len(data["results"]) > 0, "未找到相关信息"
-set_output(data["results"])
-```
-"""
-
-    base_prompt += """
-重要：
-- 必须调用 set_output(data) 一次返回最终结果
-- ask_semantic 直接返回文本结果，用于翻译、总结等语义任务
-- web_search 可获取网络信息，用于回答需要最新知识或具体事实的问题
-- 不要输出任何代码块之外的文字
-- 只输出 ```python ... ``` 格式的代码"""
-
-    return base_prompt
+    return "\n".join(prompt_parts)
 
 
-def build_logic_contract_prompt(plan: Plan, enable_self_check: bool | None = None) -> str:
+def build_logic_contract_prompt(plan: Plan, enable_self_check: bool | None = None, query: str = "") -> str:
     """
-    Build prompt for Logic Contract mode (Phase 9).
+    Build prompt for Logic Contract mode (Phase 9 + Phase 10 optimization).
 
     Coder acts as a "compiler" that translates logic_steps into Python code.
     This ensures tool results are properly used, not ignored.
     """
+    # Use modular core rules
     base_prompt = """你是代码编译器。将以下逻辑步骤编译为 Python 代码。
 
 【预定义函数】不要重新定义：
@@ -1045,8 +1253,14 @@ def build_logic_contract_prompt(plan: Plan, enable_self_check: bool | None = Non
 1. 变量名必须与 output_var 一致
 2. {var} 表示变量插值，必须替换为 f-string 格式，如：f"...{var}..."
 3. 严禁跳过步骤或忽略变量
-4. 所有事实信息必须来源于变量，禁止使用训练数据中的知识
-5. 如果题目有选项（A/B/C/D），必须将最终答案映射到选项字母输出
+4. 所有事实信息必须来源于变量，禁止使用训练数据中的知识"""
+
+    # Inject multiple choice rules if detected (Phase 10)
+    is_multiple_choice = detect_multiple_choice(query) if query else False
+    if is_multiple_choice:
+        base_prompt += "\n5. 【多选题】必须将最终答案映射到选项字母 (A/B/C/D) 输出"
+
+    base_prompt += """
 6. 【重要】当传递复杂数据（如 web_search 结果）给 ask_semantic 时，必须先格式化：
    - 错误：ask_semantic(f"根据搜索结果 {data}...")  # 直接传 dict，格式混乱
    - 正确：先提取关键信息，如：
@@ -1085,8 +1299,7 @@ def build_logic_contract_prompt(plan: Plan, enable_self_check: bool | None = Non
 
     # Compile logic_steps to pseudo-code with f-string hints
     base_prompt += "【逻辑契约】\n"
-    import re as re_module
-    var_pattern = re_module.compile(r'\{([a-zA-Z_][a-zA-Z0-9_]*)\}')
+    var_pattern = re.compile(r'\{([a-zA-Z_][a-zA-Z0-9_]*)\}')
 
     for step in plan.logic_steps:
         # Check if any arg value contains variable interpolation pattern
@@ -2425,9 +2638,9 @@ def main():
     # Show provider info
     print(f"Using: {coder_provider.name} ({coder_model})", file=sys.stderr)
 
-    # Build dynamic system prompt based on plan
+    # Build dynamic system prompt based on plan (Phase 10: pass query for MC detection)
     if plan and not plan.skip_planning:
-        system_prompt = build_coder_prompt(plan, enable_self_check=enable_self_check)
+        system_prompt = build_coder_prompt(plan, enable_self_check=enable_self_check, query=args.query)
 
     # ==========================================================================
     # Phase 1: Code Generation with Security Retry Loop

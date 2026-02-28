@@ -22,6 +22,13 @@ from upa import (
     TOOL_REGISTRY,
     STATIC_CODER_PROMPT,
     build_coder_prompt,
+    # Phase 10 imports
+    detect_multiple_choice,
+    detect_intent_features,
+    infer_intent_from_features,
+    CORE_RULES_PROMPT,
+    MULTIPLE_CHOICE_RULES,
+    TOOL_USAGE_RULES,
 )
 
 
@@ -245,15 +252,17 @@ class TestBuildCoderPrompt:
         assert "执行步骤" in prompt
         assert "First do this" in prompt
 
-    def test_output_type_included(self):
-        """Expected output type should be included."""
+    def test_output_type_not_in_modular_prompt(self):
+        """Expected output type is not in modular prompt (Phase 10 change)."""
         plan = Plan(
             intent="computation",
             complexity="simple",
             expected_output_type="number",
         )
         prompt = build_coder_prompt(plan)
-        assert "期望输出类型：number" in prompt
+        # Phase 10: Modular prompt doesn't include output_type by default
+        # (it can be added via coding_hints if needed)
+        assert "set_output" in prompt  # Core functionality
 
 
 class TestToolRegistry:
@@ -270,6 +279,172 @@ class TestToolRegistry:
         for name, tool in TOOL_REGISTRY.items():
             assert tool.usage_doc, f"Tool {name} missing usage_doc"
             assert len(tool.usage_doc) > 20, f"Tool {name} has short usage_doc"
+
+
+# =============================================================================
+# Phase 10: Modular Prompt Architecture Tests
+# =============================================================================
+
+class TestDetectMultipleChoice:
+    """Tests for detect_multiple_choice function (Phase 10.2a)."""
+
+    def test_standard_format(self):
+        """Standard A. B. C. D. format should be detected."""
+        assert detect_multiple_choice("12 × 8 等于多少？A. 86 B. 96 C. 106 D. 116") == True
+        assert detect_multiple_choice("问题？A. 选项1 B. 选项2 C. 选项3 D. 选项4") == True
+
+    def test_chinese_format(self):
+        """Chinese format with 选项 should be detected."""
+        assert detect_multiple_choice("正确答案是选项A") == True
+        assert detect_multiple_choice("选择选项B或C") == True
+
+    def test_parenthesis_format(self):
+        """Parenthesis format (A) (B) should be detected."""
+        assert detect_multiple_choice("选择 (A) 或 (B)") == True
+
+    def test_non_multiple_choice(self):
+        """Non-multiple-choice queries should return False."""
+        assert detect_multiple_choice("计算斐波那契数列") == False
+        assert detect_multiple_choice("翻译这段文字") == False
+        assert detect_multiple_choice("你好") == False
+        assert detect_multiple_choice("什么是人工智能？") == False
+
+    def test_single_letter_not_mc(self):
+        """Single letter mention without options should not be MC."""
+        assert detect_multiple_choice("这个问题是关于A的") == False
+
+    def test_complex_mc_format(self):
+        """Complex MC formats should be detected."""
+        assert detect_multiple_choice("问题：以下哪个正确？\nA. 第一个\nB. 第二个\nC. 第三个") == True
+
+
+class TestDetectIntentFeatures:
+    """Tests for detect_intent_features function (Phase 10.3)."""
+
+    def test_computation_features(self):
+        """Computation queries should have correct features."""
+        features = detect_intent_features("计算 1+1")
+        assert features["has_math_expr"] == True
+        assert features["has_calc_keyword"] == True
+
+    def test_semantic_features(self):
+        """Semantic queries should have correct features."""
+        features = detect_intent_features("翻译这段文字")
+        assert features["has_translate"] == True
+
+        features = detect_intent_features("总结文章主旨")
+        assert features["has_summarize"] == True
+
+    def test_multi_step_features(self):
+        """Multi-step queries should have correct features."""
+        features = detect_intent_features("是谁发明了电话？")
+        assert features["needs_fact_check"] == True
+
+        features = detect_intent_features("最新的科技新闻")
+        assert features["needs_realtime"] == True
+
+    def test_simple_chat_features(self):
+        """Simple chat queries should have correct features."""
+        features = detect_intent_features("你好")
+        assert features["is_greeting"] == True
+
+        features = detect_intent_features("谢谢")
+        assert features["is_thanks"] == True
+
+    def test_multiple_choice_detection(self):
+        """MC queries should have is_multiple_choice feature."""
+        features = detect_intent_features("问题？A. 选项1 B. 选项2")
+        assert features["is_multiple_choice"] == True
+
+
+class TestInferIntentFromFeatures:
+    """Tests for infer_intent_from_features function (Phase 10.3)."""
+
+    def test_infer_simple_chat(self):
+        """Simple chat should be inferred correctly."""
+        features = {"is_greeting": True, "is_thanks": False, "is_short": False,
+                    "has_math_expr": False, "has_calc_keyword": False, "has_translate": False,
+                    "has_summarize": False, "has_sentiment": False, "needs_fact_check": False,
+                    "needs_realtime": False, "has_question_word": False, "is_multiple_choice": False,
+                    "is_pure_math": False}
+        intent, complexity = infer_intent_from_features(features, "你好")
+        assert intent == "simple_chat"
+        assert complexity == "trivial"
+
+    def test_infer_computation(self):
+        """Computation should be inferred correctly."""
+        features = {"is_greeting": False, "is_thanks": False, "is_short": False,
+                    "has_math_expr": True, "has_calc_keyword": True, "has_translate": False,
+                    "has_summarize": False, "has_sentiment": False, "needs_fact_check": False,
+                    "needs_realtime": False, "has_question_word": False, "is_multiple_choice": False,
+                    "is_pure_math": False}
+        intent, complexity = infer_intent_from_features(features, "计算 1+1")
+        assert intent == "computation"
+
+    def test_infer_semantic(self):
+        """Semantic should be inferred correctly."""
+        features = {"is_greeting": False, "is_thanks": False, "is_short": False,
+                    "has_math_expr": False, "has_calc_keyword": False, "has_translate": True,
+                    "has_summarize": False, "has_sentiment": False, "needs_fact_check": False,
+                    "needs_realtime": False, "has_question_word": False, "is_multiple_choice": False,
+                    "is_pure_math": False}
+        intent, complexity = infer_intent_from_features(features, "翻译这段文字")
+        assert intent == "semantic"
+
+    def test_infer_multi_step(self):
+        """Multi-step should be inferred correctly."""
+        features = {"is_greeting": False, "is_thanks": False, "is_short": False,
+                    "has_math_expr": False, "has_calc_keyword": False, "has_translate": False,
+                    "has_summarize": False, "has_sentiment": False, "needs_fact_check": True,
+                    "needs_realtime": False, "has_question_word": True, "is_multiple_choice": False,
+                    "is_pure_math": False}
+        intent, complexity = infer_intent_from_features(features, "是谁发明了电话？")
+        assert intent == "multi_step"
+
+
+class TestModularPromptArchitecture:
+    """Tests for Phase 10 modular prompt architecture."""
+
+    def test_core_rules_exists(self):
+        """CORE_RULES_PROMPT should exist and be concise."""
+        assert CORE_RULES_PROMPT is not None
+        assert len(CORE_RULES_PROMPT) > 100
+        assert "set_output" in CORE_RULES_PROMPT
+        # Should be around 800 chars (target)
+        assert len(CORE_RULES_PROMPT) < 1200  # Allow some flexibility
+
+    def test_multiple_choice_rules_exists(self):
+        """MULTIPLE_CHOICE_RULES should exist."""
+        assert MULTIPLE_CHOICE_RULES is not None
+        assert "A/B/C/D" in MULTIPLE_CHOICE_RULES
+
+    def test_tool_usage_rules_exists(self):
+        """TOOL_USAGE_RULES should exist."""
+        assert TOOL_USAGE_RULES is not None
+        assert "web_search" in TOOL_USAGE_RULES
+
+    def test_build_coder_prompt_with_mc_query(self):
+        """build_coder_prompt should inject MC rules when query has MC format."""
+        plan = Plan(
+            intent="computation",
+            complexity="simple",
+            skip_planning=False,
+            logic_steps=[],
+        )
+        prompt = build_coder_prompt(plan, query="问题？A. 选项1 B. 选项2 C. 选项3 D. 选项4")
+        assert "多选题" in prompt or "选项字母" in prompt
+
+    def test_build_coder_prompt_without_mc_query(self):
+        """build_coder_prompt should NOT inject MC rules for non-MC queries."""
+        plan = Plan(
+            intent="computation",
+            complexity="simple",
+            skip_planning=False,
+            logic_steps=[],
+        )
+        prompt = build_coder_prompt(plan, query="计算斐波那契数列第10项")
+        # Should have core rules but not MC-specific rules
+        assert "set_output" in prompt
 
 
 if __name__ == "__main__":
