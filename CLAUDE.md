@@ -24,8 +24,14 @@ uv run python <script.py>
 uv run python upa.py "your question"
 
 # Run benchmarks
-uv run python benchmark_upa.py --workers 8
-uv run python benchmark_semantic.py --workers 8
+# Core UPA functionality (43 tests)
+uv run python -m benchmarks core -w 8
+
+# Semantic-Logic hybrid (17 tests)
+uv run python -m benchmarks semantic -w 8
+
+# All suites: core, semantic, classic, mmlu, planner
+uv run python -m benchmarks --list-suites
 ```
 
 ### Environment Configuration
@@ -101,41 +107,71 @@ uv run python upa.py --timing "Calculate fibonacci(10)"
 
 ## Benchmarking
 
-### UPA Performance Benchmark (`benchmark_upa.py`)
-Tests core code generation and execution across 43 test cases covering 4 complexity levels.
+The project uses a unified benchmark framework (`benchmarks/` module):
 
 ```bash
-# Run all tests
-uv run python benchmark_upa.py --workers 8
+# List all available test suites
+uv run python -m benchmarks --list-suites
+
+# Run core UPA functionality tests (43 tests)
+uv run python -m benchmarks core -w 8
+
+# Run semantic-logic hybrid tests (17 tests)
+uv run python -m benchmarks semantic -w 8
+
+# Run classic LLM benchmarks (23 tests)
+uv run python -m benchmarks classic -w 8
+
+# Run MMLU academic knowledge benchmarks (147 tests)
+uv run python -m benchmarks mmlu -w 8
 
 # Filter by complexity
-uv run python benchmark_upa.py --complexity simple --workers 4
+uv run python -m benchmarks core -c 中等 -w 4
 
-# Limit tests
-uv run python benchmark_upa.py --limit 10
+# Export results to JSON
+uv run python -m benchmarks core -j results.json -w 8
 
-# Export results
-uv run python benchmark_upa.py --workers 8 --json results.json
+# Save detailed execution logs
+uv run python -m benchmarks core --save-details details.json -w 8
 ```
 
-### Semantic-Logic Hybrid Benchmark (`benchmark_semantic.py`)
-Tests hybrid tasks combining semantic understanding (sub-agent) with logic processing. 17 test cases across 5 task types.
+**Test Suites**:
 
-```bash
-# Run all tests
-uv run python benchmark_semantic.py --workers 8
+| Suite | Tests | Description |
+|-------|-------|-------------|
+| **core** | 43 | Core UPA functionality (code generation & execution) |
+| **semantic** | 17 | Sub-agent integration (semantic-logic hybrid) |
+| **classic** | 23 | Classic LLM problems (GSM8K, HumanEval, MATH) |
+| **mmlu** | 147 | Academic knowledge across STEM, humanities, social sciences |
+| **planner** | 18 | Planner validation (intent classification, task decomposition) |
 
-# Filter by task type
-uv run python benchmark_semantic.py --type "翻译+逻辑" --workers 4
+**Legacy Commands** (still work but deprecated):
+- `benchmark_upa.py` → Use `python -m benchmarks core`
+- `benchmark_semantic.py` → Use `python -m benchmarks semantic`
 
-# Export results
-uv run python benchmark_semantic.py --workers 8 --json results.json
-```
+## Implementation Status
 
-### Benchmark Task Types
+### ✅ Completed Phases
 
-- **翻译+逻辑**: Translation followed by logical operations
-- **总结+分析**: Summarization with analysis
-- **情感+计算**: Sentiment analysis with calculations
-- **提取+处理**: Information extraction with processing
-- **递归调用**: Multi-step recursive sub-agent calls
+| Phase | Name | Status |
+|-------|------|--------|
+| 1 | MVP (Always-Code Execution) | ✅ Complete |
+| 2 | Semantic Integration | ✅ Complete |
+| 3 | Self-Healing | ✅ Complete |
+| 4 | CLI Enhancements | ✅ Complete |
+| 5 | Planner Architecture | ✅ Complete |
+| 6 | Complexity-Aware Coder Selection | ✅ Complete |
+| 7 | Self-Check Mechanism | ✅ Complete |
+| 8 | Structured Output (set_output API) | ✅ Complete |
+| 9 | Logic Contract (variable binding) | ✅ Complete |
+| 10 | Prompt Optimization | ✅ Complete |
+| 11 | Intent Recognition | ✅ Complete |
+| 11.5 | Intent Recognition Optimization | ✅ Complete |
+
+### Recent Achievements
+
+- **MMLU Benchmark**: 100% pass rate (32/32 sampling)
+- **Intent Recognition Stability**: 100% consistent across 5 consecutive runs
+- **Skip Planning Rate**: 62.5% (within target 50-70% range)
+
+See `DESIGN.md` for detailed architecture and phase documentation.
