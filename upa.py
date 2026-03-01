@@ -27,70 +27,9 @@ from pathlib import Path
 from dotenv import load_dotenv
 from openai import OpenAI
 
-# =============================================================================
-# Planner Module (Phase 5: Dynamic Prompt Construction)
-# =============================================================================
-
 from typing import Any
 
-
-@dataclass
-class PlanStep:
-    """Single step in a decomposed plan."""
-    order: int
-    description: str
-    tool_needed: str | None
-    expected_output: str
-    dependencies: list[int] = field(default_factory=list)
-
-
-@dataclass
-class LogicStep:
-    """
-    带变量绑定的逻辑步骤 - 用于强制数据流约束。
-
-    Planner 输出逻辑契约，Coder 作为"编译器"将其编译为 Python 代码。
-    这确保工具结果被正确使用，而非被 LLM 忽略。
-    """
-    id: str                           # "S1", "S2", ...
-    action: str                       # "web_search" | "ask_semantic" | "logic" | "set_output"
-    args: dict = field(default_factory=dict)  # 工具参数（支持变量插值 {var}）
-    input_vars: list[str] = field(default_factory=list)  # 依赖的变量
-    output_var: str = ""              # 输出变量名
-    description: str = ""             # 步骤描述（用于调试）
-    assertion: str | None = None      # 断言条件（可选）
-
-
-@dataclass
-class Plan:
-    """Structured output from Planner."""
-    # Intent classification
-    intent: str  # "simple_chat" | "computation" | "semantic" | "hybrid" | "multi_step"
-    complexity: str  # "trivial" | "simple" | "medium" | "complex"
-
-    # Task decomposition (legacy, kept for backward compatibility)
-    steps: list[PlanStep] = field(default_factory=list)
-
-    # Logic Contract: 带变量绑定的逻辑步骤（Phase 9 新增）
-    logic_steps: list[LogicStep] = field(default_factory=list)
-
-    # Dynamic tool selection
-    required_tools: list[str] = field(default_factory=list)
-    relevant_modules: list[str] = field(default_factory=list)
-
-    # Guidance for Coder
-    coding_hints: list[str] = field(default_factory=list)
-    expected_output_type: str = "string"
-
-    # Planner confidence
-    confidence: float = 0.8
-
-    # Fallback flag
-    skip_planning: bool = False
-
-    # Post-processing configuration
-    requires_post_processing: bool = False  # 是否需要输出整理
-    output_format_hint: str = ""  # 输出格式提示
+from upa.planner_models import Plan, PlanStep, LogicStep, PlanParseResult
 
 
 # =============================================================================
@@ -998,85 +937,33 @@ def create_plan_from_intent(intent: Intent) -> Plan:
         confidence=intent.confidence,
         skip_planning=not intent.requires_planning,
     )
-
-
 def validate_plan(plan: Plan) -> Plan:
-    """Validate and sanitize plan output."""
-    # Ensure required_tools only contains valid tools
-    valid_tools = set(TOOL_REGISTRY.keys())
-    plan.required_tools = [t for t in plan.required_tools if t in valid_tools]
+    """
+    Validate and sanitize plan output.
 
-    # Cap steps to prevent runaway decomposition
-    if len(plan.steps) > 5:
-        plan.steps = plan.steps[:5]
-        plan.coding_hints.append("任务已简化，专注于核心步骤")
+    Note: Most validation is now handled by Pydantic in the Plan model.
+    This function provides additional runtime validation and sanitization.
+    """
+    # Pydantic already validates:
+    # - intent (valid values)
+    # - complexity (valid values)
+    # - confidence (0.0-1.0 range)
+    # - required_tools (filtered to valid tools)
+    # - steps (capped at 5)
 
-    # Ensure confidence is in valid range
-    plan.confidence = max(0.0, min(1.0, plan.confidence))
-
+    # Additional runtime validation can be added here if needed
     return plan
 
 
 def parse_plan_from_json(json_str: str) -> Plan | None:
     """
     Parse Plan from JSON string with layered parsing strategy.
+    Uses Pydantic models for type-safe validation.
 
-    Layer 1: Fast path - direct parsing for well-formed JSON
-    Layer 2: String repair path - parse stringified JSON fields
+    Layer 1: Fast path - direct parsing with Pydantic
+    Layer 2: String repair path - handle stringified JSON fields
     Layer 3: Smart extraction path - regex-based field extraction
     """
-
-    def parse_field_as_list(value: Any, field_name: str = "field") -> list:
-        """Parse a field value as a list, handling stringified JSON."""
-        if isinstance(value, list):
-            return value
-        if isinstance(value, str):
-            try:
-                parsed = json.loads(value)
-                if isinstance(parsed, list):
-                    print(f"Planner: Layer 2 repair - {field_name} was stringified JSON", file=sys.stderr)
-                    return parsed
-            except json.JSONDecodeError:
-                pass
-        return []
-
-    def parse_field_as_dict(value: Any, field_name: str = "field") -> dict:
-        """Parse a field value as a dict, handling stringified JSON."""
-        if isinstance(value, dict):
-            return value
-        if isinstance(value, str):
-            try:
-                parsed = json.loads(value)
-                if isinstance(parsed, dict):
-                    print(f"Planner: Layer 2 repair - {field_name} was stringified JSON", file=sys.stderr)
-                    return parsed
-            except json.JSONDecodeError:
-                pass
-        return {}
-
-    def parse_field_as_bool(value: Any, default: bool) -> bool:
-        """Parse a field value as bool, handling string/numeric values."""
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, str):
-            if value.lower() in ('true', 'yes', '1'):
-                return True
-            if value.lower() in ('false', 'no', '0'):
-                return False
-        if isinstance(value, (int, float)):
-            return bool(value)
-        return default
-
-    def parse_field_as_float(value: Any, default: float) -> float:
-        """Parse a field value as float, handling string values."""
-        if isinstance(value, (int, float)):
-            return float(value)
-        if isinstance(value, str):
-            try:
-                return float(value)
-            except ValueError:
-                pass
-        return default
 
     def extract_with_regex(content: str) -> dict:
         """
@@ -1151,73 +1038,59 @@ def parse_plan_from_json(json_str: str) -> Plan | None:
         extracted = extract_with_regex(json_str)
         if extracted:
             print(f"Planner: Regex extraction succeeded for: {list(extracted.keys())}", file=sys.stderr)
-            return Plan(
-                intent=extracted.get('intent', 'unknown'),
-                complexity=extracted.get('complexity', 'simple'),
-                steps=[],
-                logic_steps=[],
-                required_tools=extracted.get('required_tools', []),
-                relevant_modules=extracted.get('relevant_modules', []),
-                coding_hints=[],
-                expected_output_type="string",
-                confidence=extracted.get('confidence', 0.5),
-                skip_planning=extracted.get('skip_planning', False),
-                requires_post_processing=extracted.get('requires_post_processing', False),
-                output_format_hint=extracted.get('output_format_hint', ""),
-            )
+            try:
+                return Plan.model_validate(extracted)
+            except Exception as e:
+                print(f"Planner: Pydantic validation failed after regex: {e}", file=sys.stderr)
+                return None
         print(f"Planner: Regex extraction also failed, returning None", file=sys.stderr)
         return None
 
-    # Layer 1: Fast path - direct parsing
-    # Layer 2: String repair path - handle stringified fields
+    # Layer 1/2: Use Pydantic to parse the data directly
+    # Pydantic will handle type coercion and validation automatically
+    try:
+        return Plan.model_validate(data)
+    except Exception as e:
+        print(f"Planner: Pydantic validation failed - {e}", file=sys.stderr)
+        # Try to repair and re-validate
+        try:
+            # Handle stringified JSON fields (Layer 2 repair)
+            for key in ['steps', 'logic_steps', 'required_tools', 'relevant_modules', 'coding_hints']:
+                value = data.get(key)
+                if isinstance(value, str):
+                    try:
+                        parsed = json.loads(value)
+                        data[key] = parsed
+                        print(f"Planner: Layer 2 repair - {key} was stringified JSON", file=sys.stderr)
+                    except json.JSONDecodeError:
+                        pass
 
-    # Parse steps (legacy)
-    steps_data = parse_field_as_list(data.get("steps", []), "steps")
-    steps = []
-    for step_data in steps_data:
-        if isinstance(step_data, dict):
-            steps.append(PlanStep(
-                order=step_data.get("order", 0),
-                description=step_data.get("description", ""),
-                tool_needed=step_data.get("tool_needed"),
-                expected_output=step_data.get("expected_output", ""),
-                dependencies=parse_field_as_list(step_data.get("dependencies", []), "dependencies"),
-            ))
+            # Handle nested objects (steps and logic_steps)
+            for step_data in data.get('steps', []):
+                if isinstance(step_data, dict):
+                    for dep_key in ['dependencies']:
+                        dep_value = step_data.get(dep_key)
+                        if isinstance(dep_value, str):
+                            try:
+                                step_data[dep_key] = json.loads(dep_value)
+                            except json.JSONDecodeError:
+                                pass
 
-    # Parse logic_steps (Phase 9: Logic Contract)
-    logic_steps_data = parse_field_as_list(data.get("logic_steps", []), "logic_steps")
-    logic_steps = []
-    for ls_data in logic_steps_data:
-        if isinstance(ls_data, dict):
-            logic_steps.append(LogicStep(
-                id=ls_data.get("id", ""),
-                action=ls_data.get("action", ""),
-                args=parse_field_as_dict(ls_data.get("args", {}), "args"),
-                input_vars=parse_field_as_list(ls_data.get("input_vars", []), "input_vars"),
-                output_var=ls_data.get("output_var", ""),
-                description=ls_data.get("description", ""),
-                assertion=ls_data.get("assertion"),
-            ))
+            for ls_data in data.get('logic_steps', []):
+                if isinstance(ls_data, dict):
+                    for list_key in ['args', 'input_vars']:
+                        list_value = ls_data.get(list_key)
+                        if isinstance(list_value, str):
+                            try:
+                                ls_data[list_key] = json.loads(list_value)
+                            except json.JSONDecodeError:
+                                pass
 
-    # Parse top-level fields with type coercion
-    required_tools = parse_field_as_list(data.get("required_tools", []), "required_tools")
-    relevant_modules = parse_field_as_list(data.get("relevant_modules", []), "relevant_modules")
-    coding_hints = parse_field_as_list(data.get("coding_hints", []), "coding_hints")
-
-    return Plan(
-        intent=data.get("intent", "unknown"),
-        complexity=data.get("complexity", "simple"),
-        steps=steps,
-        logic_steps=logic_steps,
-        required_tools=required_tools,
-        relevant_modules=relevant_modules,
-        coding_hints=coding_hints,
-        expected_output_type=data.get("expected_output_type", "string"),
-        confidence=parse_field_as_float(data.get("confidence", 0.8), 0.8),
-        skip_planning=parse_field_as_bool(data.get("skip_planning", False), False),
-        requires_post_processing=parse_field_as_bool(data.get("requires_post_processing", False), False),
-        output_format_hint=data.get("output_format_hint", ""),
-    )
+            return Plan.model_validate(data)
+        except Exception as e2:
+            print(f"Planner: Repair failed - {e2}", file=sys.stderr)
+            # Return a default plan on validation failure
+            return create_default_plan()
 
 
 def run_planner(

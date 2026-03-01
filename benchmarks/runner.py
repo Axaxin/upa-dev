@@ -17,6 +17,11 @@ from benchmarks.suites.base import (
     QualityMetric, Complexity, TaskType
 )
 from benchmarks.display import StreamingDisplay, Colors, format_bar, format_time
+from benchmarks.planner_validation import (
+    PlannerValidationResult,
+    PlannerValidationDetail,
+    PlannerExpectation,
+)
 
 
 def extract_code_from_stderr(stderr: str) -> str:
@@ -710,50 +715,72 @@ def _validate_planner(
     skip_planning: bool,
     logic_steps: list[dict],
     uses_logic_contract: bool
-) -> dict[str, bool]:
+) -> PlannerValidationResult:
     """Validate Planner decisions against test expectations.
 
     Returns:
-        dict with validation results for each planner field
+        PlannerValidationResult with validation results for each planner field
     """
-    validation = {}
+    result = PlannerValidationResult()
+
+    # Build expectation from test case
+    expectation = PlannerExpectation(
+        intent=test.expect_planner_intent,
+        tools=test.expect_planner_tools or [],
+        skip_planning=test.expect_planner_skip,
+        has_logic_steps=test.expect_logic_steps,
+        uses_logic_contract=test.expect_uses_logic_contract,
+    )
 
     # Validate intent
-    if hasattr(test, 'expect_planner_intent') and test.expect_planner_intent:
-        validation['intent_correct'] = (intent == test.expect_planner_intent)
-        validation['intent_expected'] = test.expect_planner_intent
-        validation['intent_actual'] = intent
+    if expectation.intent:
+        intent_match = intent == expectation.intent
+        result.intent_correct = intent_match
+        result.intent_detail = PlannerValidationDetail(
+            expected=expectation.intent,
+            actual=intent,
+            correct=intent_match,
+        )
 
     # Validate tools
-    if hasattr(test, 'expect_planner_tools') and test.expect_planner_tools:
-        # Check if all expected tools are present
-        tools_set = set(tools) if tools else set()
-        expected_set = set(test.expect_planner_tools)
-        validation['tools_correct'] = (tools_set == expected_set)
-        validation['tools_expected'] = test.expect_planner_tools
-        validation['tools_actual'] = tools
+    if expectation.tools:
+        tools_match = set(tools) == set(expectation.tools)
+        result.tools_correct = tools_match
+        result.tools_detail = PlannerValidationDetail(
+            expected=expectation.tools,
+            actual=tools,
+            correct=tools_match,
+        )
 
     # Validate skip_planning
-    if hasattr(test, 'expect_planner_skip') and test.expect_planner_skip is not None:
-        validation['skip_correct'] = (skip_planning == test.expect_planner_skip)
-        validation['skip_expected'] = test.expect_planner_skip
-        validation['skip_actual'] = skip_planning
+    if expectation.skip_planning is not None:
+        skip_match = skip_planning == expectation.skip_planning
+        result.skip_correct = skip_match
+        result.skip_detail = PlannerValidationDetail(
+            expected=expectation.skip_planning,
+            actual=skip_planning,
+            correct=skip_match,
+        )
 
-    # Validate logic_steps (Phase 9)
-    if hasattr(test, 'expect_logic_steps') and test.expect_logic_steps is not None:
-        has_logic_steps = len(logic_steps) > 0
-        validation['logic_steps_correct'] = (has_logic_steps == test.expect_logic_steps)
-        validation['logic_steps_expected'] = test.expect_logic_steps
-        validation['logic_steps_actual'] = has_logic_steps
-        validation['logic_steps_count'] = len(logic_steps)
+    # Validate logic_steps
+    if expectation.has_logic_steps is not None:
+        has_steps = len(logic_steps) > 0
+        steps_match = has_steps == expectation.has_logic_steps
+        result.logic_steps_correct = steps_match
+        result.logic_steps_detail = PlannerValidationDetail(
+            expected=expectation.has_logic_steps,
+            actual=has_steps,
+            correct=steps_match,
+        )
 
-    # Validate logic_contract usage (Phase 9)
-    if hasattr(test, 'expect_uses_logic_contract') and test.expect_uses_logic_contract is not None:
-        validation['logic_contract_correct'] = (uses_logic_contract == test.expect_uses_logic_contract)
-        validation['logic_contract_expected'] = test.expect_uses_logic_contract
-        validation['logic_contract_actual'] = uses_logic_contract
+    # Validate logic_contract
+    if expectation.uses_logic_contract is not None:
+        contract_match = uses_logic_contract == expectation.uses_logic_contract
+        result.logic_contract_correct = contract_match
+        result.logic_contract_detail = PlannerValidationDetail(
+            expected=expectation.uses_logic_contract,
+            actual=uses_logic_contract,
+            correct=contract_match,
+        )
 
-    # Overall planner validation passes if all checks pass
-    validation['all_correct'] = all(v for k, v in validation.items() if k.endswith('_correct'))
-
-    return validation
+    return result

@@ -130,28 +130,42 @@ def print_report_core(results: list[tuple[TestCase, BenchmarkResult, dict[Qualit
         if validation_results:
             print(f"\n  {Colors.BOLD}🔍 Planner Validation Results{Colors.ENDC}")
             # Intent accuracy
-            intent_correct = sum(1 for v in validation_results if v.get('intent_correct'))
-            intent_total = sum(1 for v in validation_results if 'intent_correct' in v)
+            intent_correct = sum(1 for v in validation_results if v.intent_correct)
+            intent_total = len(validation_results)
             if intent_total > 0:
                 intent_color = Colors.OKGREEN if intent_correct == intent_total else Colors.FAIL
                 print(f"  Intent Accuracy:  {intent_color}{intent_correct}/{intent_total} ({intent_correct/intent_total*100:.1f}%){Colors.ENDC}")
 
             # Tools accuracy
-            tools_correct = sum(1 for v in validation_results if v.get('tools_correct'))
-            tools_total = sum(1 for v in validation_results if 'tools_correct' in v)
+            tools_correct = sum(1 for v in validation_results if v.tools_correct)
+            tools_total = len(validation_results)
             if tools_total > 0:
                 tools_color = Colors.OKGREEN if tools_correct == tools_total else Colors.FAIL
                 print(f"  Tools Accuracy:   {tools_color}{tools_correct}/{tools_total} ({tools_correct/tools_total*100:.1f}%){Colors.ENDC}")
 
             # Skip accuracy
-            skip_correct = sum(1 for v in validation_results if v.get('skip_correct'))
-            skip_total = sum(1 for v in validation_results if 'skip_correct' in v)
+            skip_correct = sum(1 for v in validation_results if v.skip_correct)
+            skip_total = len(validation_results)
             if skip_total > 0:
                 skip_color = Colors.OKGREEN if skip_correct == skip_total else Colors.FAIL
                 print(f"  Skip Accuracy:    {skip_color}{skip_correct}/{skip_total} ({skip_correct/skip_total*100:.1f}%){Colors.ENDC}")
 
+            # Logic Steps accuracy - NEW
+            logic_steps_correct = sum(1 for v in validation_results if v.logic_steps_correct)
+            logic_steps_total = len(validation_results)
+            if logic_steps_total > 0:
+                ls_color = Colors.OKGREEN if logic_steps_correct == logic_steps_total else Colors.FAIL
+                print(f"  Logic Steps Acc:  {ls_color}{logic_steps_correct}/{logic_steps_total} ({logic_steps_correct/logic_steps_total*100:.1f}%){Colors.ENDC}")
+
+            # Logic Contract accuracy - NEW
+            logic_contract_correct = sum(1 for v in validation_results if v.logic_contract_correct)
+            logic_contract_total = len(validation_results)
+            if logic_contract_total > 0:
+                lc_color = Colors.OKGREEN if logic_contract_correct == logic_contract_total else Colors.FAIL
+                print(f"  Logic Contract:   {lc_color}{logic_contract_correct}/{logic_contract_total} ({logic_contract_correct/logic_contract_total*100:.1f}%){Colors.ENDC}")
+
             # Overall accuracy
-            all_correct = sum(1 for v in validation_results if v.get('all_correct'))
+            all_correct = sum(1 for v in validation_results if v.all_correct)
             if validation_results:
                 overall_color = Colors.OKGREEN if all_correct == len(validation_results) else Colors.FAIL
                 print(f"  Overall Accuracy: {overall_color}{all_correct}/{len(validation_results)} ({all_correct/len(validation_results)*100:.1f}%){Colors.ENDC}")

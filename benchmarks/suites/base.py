@@ -139,7 +139,7 @@ class TestDetails:
     planner_timing_ms: float = 0.0
 
     # Planner validation results
-    planner_validation: dict[str, bool] = field(default_factory=dict)
+    planner_validation: "PlannerValidationResult" = field(default_factory=lambda: None)
 
     # Phase 9: Logic Contract (Logic Steps)
     logic_steps: list[dict] = field(default_factory=list)  # Detailed logic steps from planner
@@ -148,6 +148,11 @@ class TestDetails:
 
     def to_dict(self) -> dict:
         """Convert to JSON-serializable dict."""
+        # Convert planner_validation to dict if it's a PlannerValidationResult
+        planner_validation_data = self.planner_validation
+        if hasattr(self.planner_validation, 'to_dict'):
+            planner_validation_data = self.planner_validation.to_dict()
+
         return {
             "suite_name": self.suite_name,
             "test_name": self.test_name,
@@ -184,6 +189,12 @@ class TestDetails:
                 "skip_planning": self.planner_skip_planning,
                 "timing_ms": self.planner_timing_ms,
             },
+            # Planner validation results
+            "planner_validation": planner_validation_data,
+            # Phase 9: Logic Contract (Logic Steps)
+            "logic_steps": self.logic_steps,
+            "logic_steps_count": self.logic_steps_count,
+            "uses_logic_contract": self.uses_logic_contract,
         }
 
 

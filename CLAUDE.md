@@ -167,11 +167,13 @@ uv run python -m benchmarks core --save-details details.json -w 8
 | 10 | Prompt Optimization | ✅ Complete |
 | 11 | Intent Recognition | ✅ Complete |
 | 11.5 | Intent Recognition Optimization | ✅ Complete |
+| 12 | Pydantic Planner Validation | ✅ Complete |
 
 ### Recent Achievements
 
 - **MMLU Benchmark**: 100% pass rate (32/32 sampling)
 - **Intent Recognition Stability**: 100% consistent across 5 consecutive runs
 - **Skip Planning Rate**: 62.5% (within target 50-70% range)
+- **Pydantic Refactoring**: Type-safe Planner validation with 5-field accuracy reporting
 
 See `DESIGN.md` for detailed architecture and phase documentation.
