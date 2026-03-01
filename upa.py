@@ -93,6 +93,25 @@ class Plan:
     output_format_hint: str = ""  # 输出格式提示
 
 
+# =============================================================================
+# Phase 11: Intent Recognition (Independent Service)
+# =============================================================================
+
+@dataclass
+class Intent:
+    """
+    Intent classification result - Phase 11 新增
+
+    用于独立意图识别服务，在 Planner 之前进行快速分类。
+    """
+    category: str                   # simple_chat, computation, semantic, knowledge, multi_step, complex
+    complexity: str                 # trivial, simple, medium, complex
+    suggested_model: str | None     # 推荐的 Coder 模型（可选）
+    requires_planning: bool         # 是否需要 Planner 分析
+    confidence: float = 0.0         # 分类置信度
+    reasoning: str | None = None    # 简短推理说明（用于调试）
+
+
 @dataclass
 class ToolDefinition:
     """Definition of an injectable tool."""
@@ -676,7 +695,222 @@ requires_post_processing 判断规则：
 只输出 JSON，不要其他文字。
 """
 
+# =============================================================================
+# Phase 11: Intent Recognition Prompts
+# =============================================================================
 
+INTENT_CLASSIFICATION_PROMPT = """
+你是一个意图分类器。分析用户查询并输出分类结果。
+
+## 类别定义（互斥，选最匹配的）
+
+- **simple_chat**: 问候、闲聊、感谢
+  - 例："你好"、"谢谢"、"早上好"、"Hi"
+
+- **computation**: 纯数学计算、公式求解、数值运算
+  - 例："2+2=?"、"求积分∫x²dx"、"解方程 2x+3=7"、"计算组合数 C(5,3)"
+  - 特征：有明确数值答案，可通过编程直接计算
+
+- **semantic**: 语言相关的语义任务
+  - 例："翻译成英文"、"总结这篇文章"、"分析这句话的情感"
+  - 特征：输入输出都是自然语言，不需要外部知识
+
+- **knowledge**: 事实/概念/理论查询（新增）
+  - 例："什么是 Porter 五力"、"维果茨基是谁"、"社会契约论的观点"、"文艺复兴的背景"
+  - 特征：需要特定领域知识（历史、政治、经济、管理、物理、化学、生物等）
+
+- **multi_step**: 需要多步骤协作或外部工具
+  - 例："先搜索 X 概念，然后分析它与 Y 的关系"
+  - 特征：明确需要 web_search 或 ask_semantic 工具
+
+- **complex**: 复杂推理，需要深度分析或多步推导
+  - 例："证明 X 定理"、"分析 X 现象的多个影响因素"
+  - 特征：推理链条长，需要多步逻辑推导
+
+## 复杂度分级
+
+- **trivial**: 条件反射式回答（<5 秒）
+- **simple**: 一步处理（<30 秒）
+- **medium**: 2-3 步处理（<2 分钟）
+- **complex**: 4 步以上或深度推理（>2 分钟）
+
+## requires_planning 判断规则（重要）
+
+输出 `true` 的情况：
+1. 类别是 knowledge 或 multi_step
+2. 类别是 complex（无论什么领域）
+3. 类别是 computation 但复杂度是 medium 或 complex
+4. 涉及专业领域知识（物理、化学、生物、历史、政治、经济、管理等）
+
+输出 `false` 的情况：
+1. 类别是 simple_chat
+2. 类别是 computation 且复杂度是 trivial 或 simple（纯数学计算）
+3. 类别是 semantic 且复杂度是 trivial 或 simple（简单翻译/总结）
+
+## 输出格式
+
+严格 JSON：
+{
+  "category": "simple_chat|computation|semantic|knowledge|multi_step|complex",
+  "complexity": "trivial|simple|medium|complex",
+  "requires_planning": true|false,
+  "confidence": 0.0-1.0,
+  "reasoning": "一句话说明分类依据"
+}
+
+只输出 JSON，不要其他内容。
+"""
+
+# =============================================================================
+# Phase 11: Intent Recognition Functions
+# =============================================================================
+
+def recognize_intent(
+    client: OpenAI,
+    query: str,
+    model: str,
+    timeout: float = 10.0,
+    max_retries: int = 2,
+    base_delay: float = 0.5,
+) -> Intent:
+    """
+    使用快速模型进行意图分类 - Phase 11 新增
+
+    Args:
+        client: OpenAI 客户端
+        query: 用户查询
+        model: 模型名称
+        timeout: 超时时间
+        max_retries: 重试次数
+        base_delay: 基础延迟
+
+    Returns:
+        Intent 对象
+    """
+    import random
+    import signal
+    from httpx import ProxyError
+    from openai import APIConnectionError, APIStatusError
+
+    def timeout_handler(signum, frame):
+        raise TimeoutError("Intent recognition call timed out")
+
+    # Set timeout (works on Unix systems)
+    if hasattr(signal, 'SIGALRM'):
+        signal.signal(signal.SIGALRM, timeout_handler)
+        signal.alarm(int(timeout))
+
+    try:
+        # Build request parameters
+        request_params = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": INTENT_CLASSIFICATION_PROMPT},
+                {"role": "user", "content": query}
+            ],
+            "temperature": 0.0,  # Deterministic classification
+            "max_tokens": 200,   # Concise JSON output
+        }
+
+        # Add JSON mode for models that support it
+        if model:
+            model_lower = model.lower()
+            if any(x in model_lower for x in ['gpt-4o', 'gpt4o', 'qwen', 'deepseek', 'grok', 'gemini']):
+                request_params["response_format"] = {"type": "json_object"}
+
+        # Retry loop with exponential backoff
+        last_exception = None
+        for attempt in range(max_retries + 1):
+            try:
+                response = client.chat.completions.create(**request_params)
+                break  # Success, exit retry loop
+
+            except (APIConnectionError, ProxyError, APIStatusError) as e:
+                last_exception = e
+                status_code = getattr(e, 'status_code', None)
+
+                # Check if this is a rate limit or service unavailable error
+                is_retryable = (
+                    status_code in (429, 503, 502, 504) or
+                    "rate limit" in str(e).lower() or
+                    "throttl" in str(e).lower() or
+                    "service unavailable" in str(e).lower() or
+                    "connection error" in str(e).lower()
+                )
+
+                if is_retryable and attempt < max_retries:
+                    # Exponential backoff with jitter
+                    delay = base_delay * (2 ** attempt) + random.uniform(0, 0.2)
+                    print(f"Intent API error, retrying in {delay:.1f}s... ({attempt+1}/{max_retries})", file=sys.stderr)
+                    time.sleep(delay)
+                else:
+                    print(f"Intent recognition failed after {attempt+1} attempts: {type(e).__name__}", file=sys.stderr)
+                    # Return low-confidence default intent
+                    return Intent(
+                        category="unknown",
+                        complexity="simple",
+                        suggested_model=None,
+                        requires_planning=False,
+                        confidence=0.0,
+                        reasoning=f"API error: {type(e).__name__}",
+                    )
+
+            except Exception as e:
+                # Non-retryable error, return default
+                return Intent(
+                    category="unknown",
+                    complexity="simple",
+                    suggested_model=None,
+                    requires_planning=False,
+                    confidence=0.0,
+                    reasoning=f"Unexpected error: {type(e).__name__}",
+                )
+
+        # Parse response
+        content = response.choices[0].message.content.strip()
+
+        # Attempt JSON parsing
+        try:
+            data = json.loads(content)
+            return Intent(
+                category=data.get("category", "unknown"),
+                complexity=data.get("complexity", "simple"),
+                suggested_model=data.get("suggested_model"),
+                requires_planning=data.get("requires_planning", False),
+                confidence=float(data.get("confidence", 0.0)),
+                reasoning=data.get("reasoning"),
+            )
+        except json.JSONDecodeError as e:
+            # Try to extract JSON from text
+            json_match = re.search(r'\{[^}]+\}', content, re.DOTALL)
+            if json_match:
+                try:
+                    data = json.loads(json_match.group())
+                    return Intent(
+                        category=data.get("category", "unknown"),
+                        complexity=data.get("complexity", "simple"),
+                        suggested_model=data.get("suggested_model"),
+                        requires_planning=data.get("requires_planning", False),
+                        confidence=float(data.get("confidence", 0.0)),
+                        reasoning=data.get("reasoning"),
+                    )
+                except json.JSONDecodeError:
+                    pass
+
+            # JSON parsing failed, return low-confidence intent
+            return Intent(
+                category="unknown",
+                complexity="simple",
+                suggested_model=None,
+                requires_planning=False,
+                confidence=0.0,
+                reasoning=f"JSON parse error: {str(e)}",
+            )
+
+    finally:
+        # Cancel alarm
+        if hasattr(signal, 'SIGALRM'):
+            signal.alarm(0)
 
 
 def is_trivial_query(query: str) -> bool:
@@ -728,6 +962,41 @@ def create_default_plan(
         expected_output_type="string",
         confidence=confidence,
         skip_planning=skip_planning,
+    )
+
+
+def create_plan_from_intent(intent: Intent) -> Plan:
+    """
+    根据 Intent 创建简化的 Plan - Phase 11 新增.
+
+    用于简单任务跳过 Planner 时，基于意图分类结果快速构建 Plan。
+
+    Args:
+        intent: Intent 分类结果
+
+    Returns:
+        Plan 对象
+    """
+    # Map intent category to required tools
+    tool_map = {
+        "simple_chat": [],
+        "computation": [],
+        "semantic": ["ask_semantic"],
+        "multi_step": ["web_search"],
+        "complex": ["web_search", "ask_semantic"],
+    }
+
+    return Plan(
+        intent=intent.category,
+        complexity=intent.complexity,
+        steps=[],
+        logic_steps=[],
+        required_tools=tool_map.get(intent.category, []),
+        relevant_modules=["datetime", "json", "re", "math"],
+        coding_hints=[],
+        expected_output_type="string",
+        confidence=intent.confidence,
+        skip_planning=not intent.requires_planning,
     )
 
 
@@ -1616,6 +1885,12 @@ class Config:
     semantic_max_depth: int = 3
     semantic_timeout: float = 60.0
 
+    # Phase 11: Intent Recognition
+    intent_provider: str | None = None   # None = use same as coder
+    intent_model: str | None = None      # Default: grok/grok-4-1-fast-non-reasoning
+    intent_timeout: float = 10.0
+    intent_enabled: bool = True
+
     # Feature flags
     web_search_enabled: bool = True
     post_process_enabled: bool = False  # Default to disabled for backward compatibility
@@ -1657,6 +1932,10 @@ class Config:
         semantic_provider = os.getenv("UPA_SEMANTIC_PROVIDER") or os.getenv("UPA_SUB_AGENT_PROVIDER", None)
         semantic_model = os.getenv("UPA_SEMANTIC_MODEL") or os.getenv("UPA_SUB_AGENT_MODEL", None)
 
+        # Load intent provider/model (Phase 11)
+        intent_provider = os.getenv("UPA_INTENT_PROVIDER", None)
+        intent_model = os.getenv("UPA_INTENT_MODEL", None)
+
         # Load complexity model map from environment
         complexity_model_map = load_complexity_map_from_env()
 
@@ -1675,6 +1954,12 @@ class Config:
             semantic_model=semantic_model,
             semantic_max_depth=int(os.getenv("UPA_SEMANTIC_DEPTH") or os.getenv("UPA_SUB_AGENT_DEPTH", "3")),
             semantic_timeout=float(os.getenv("UPA_SEMANTIC_TIMEOUT") or os.getenv("UPA_SUB_AGENT_TIMEOUT", "60.0")),
+            # Phase 11: Intent Recognition
+            intent_provider=intent_provider,
+            intent_model=intent_model or "grok/grok-4-1-fast-non-reasoning",
+            intent_timeout=float(os.getenv("UPA_INTENT_TIMEOUT", "10.0")),
+            intent_enabled=os.getenv("UPA_INTENT_ENABLED", "true").lower() == "true",
+            # Feature flags
             web_search_enabled=os.getenv("UPA_WEB_SEARCH", "true").lower() == "true",
             post_process_enabled=os.getenv("UPA_POST_PROCESS", "false").lower() == "true",
             # Phase 6
@@ -1718,6 +2003,12 @@ class Config:
             f"    Model:           {self.semantic_model or '(same as coder)'}",
             f"    Max Depth:       {self.semantic_max_depth}",
             f"    Timeout:         {self.semantic_timeout}s",
+            "",
+            "  Intent Recognition (Phase 11):",
+            f"    Enabled:         {self.intent_enabled}",
+            f"    Provider:        {self.intent_provider or '(same as coder)'}",
+            f"    Model:           {self.intent_model or 'grok/grok-4-1-fast-non-reasoning'}",
+            f"    Timeout:         {self.intent_timeout}s",
             "",
             "  Features:",
             f"    Web Search:           {self.web_search_enabled}",
@@ -1971,6 +2262,24 @@ def get_planner_provider_config() -> ProviderConfig:
     # If planner has its own provider
     if config.planner_provider:
         return get_provider(config.planner_provider)
+
+    # Otherwise use coder's provider
+    return get_provider(config.provider)
+
+
+def get_intent_provider_config() -> ProviderConfig:
+    """
+    Get the provider configuration for intent recognition - Phase 11 新增.
+
+    Priority:
+      1. UPA_INTENT_PROVIDER (if set)
+      2. Fall back to coder provider
+    """
+    config = get_config()
+
+    # If intent has its own provider
+    if config.intent_provider:
+        return get_provider(config.intent_provider)
 
     # Otherwise use coder's provider
     return get_provider(config.provider)
@@ -2779,29 +3088,69 @@ def main():
     timer = Timer()
 
     # ==========================================================================
-    # Phase 0: Planner Analysis (Dynamic Prompt Construction)
+    # Phase 11: Intent Recognition (Independent Service)
     # ==========================================================================
+    # Run intent classification as a前置 step to decide whether to use Planner
+    intent: Intent | None = None
     plan: Plan | None = None
     system_prompt = SYSTEM_PROMPT  # Default to static prompt
 
-    # Get planner provider and validate API key
-    planner_provider = get_planner_provider_config()
-    if not planner_provider.api_key:
-        print(f"Error: API key not set for planner provider", file=sys.stderr)
-        sys.exit(1)
 
-    if True:  # Planner is always enabled, controlled by config
-        # Quick bypass for trivial queries
+    # Get planner provider early for later validation
+    planner_provider = get_planner_provider_config()
+    if config.intent_enabled:
+        timer.start("Intent Recognition")
+        intent_provider_cfg = get_intent_provider_config()
+        intent_client = create_client(intent_provider_cfg)
+        intent_model = config.intent_model or intent_provider_cfg.model
+
+        # Validate intent provider API key
+        if not intent_provider_cfg.api_key:
+            print(f"Warning: Intent Recognition API key not set, using fallback", file=sys.stderr)
+            intent = None
+        else:
+            intent = recognize_intent(
+                intent_client,
+                args.query,
+                intent_model,
+                timeout=config.intent_timeout,
+            )
+            timer.stop()
+
+            # 低置信度回退：confidence < 0.6 时强制运行 Planner
+            if intent and intent.confidence < 0.6:
+                print(f"Intent: Low confidence ({intent.confidence:.2f}), running Planner for safety", file=sys.stderr)
+                intent.requires_planning = True
+
+            print(f"Intent: {intent.category} ({intent.complexity}, confidence={intent.confidence:.2f})", file=sys.stderr)
+
+    # ==========================================================================
+    # Phase 0: Planner Analysis (Dynamic Prompt Construction)
+    # ==========================================================================
+    # Route based on intent classification
+    if intent and not intent.requires_planning:
+        # Simple task: skip Planner, create plan from intent
+        plan = create_plan_from_intent(intent)
+        print("Skipping Planner (intent classification)", file=sys.stderr)
+    elif intent and intent.requires_planning:
+        # Complex task: run Planner
+        timer.start("Planner Analysis")
+        planner_model = config.planner_model or planner_provider.model
+        planner_client = create_client(planner_provider)
+        plan = run_planner(planner_client, args.query, planner_model, timeout=config.planner_timeout)
+        timer.stop()
+    else:
+        # Intent disabled or failed: fall back to original logic
         if is_trivial_query(args.query):
-            print("Planner: Trivial query detected, using static prompt", file=sys.stderr)
+            print("Planner: Trivial query detected (fallback)", file=sys.stderr)
             plan = create_default_plan(intent="simple_chat", skip_planning=True)
         else:
             timer.start("Planner Analysis")
-            # Get planner-specific model and client
             planner_model = config.planner_model or planner_provider.model
             planner_client = create_client(planner_provider)
             plan = run_planner(planner_client, args.query, planner_model, timeout=config.planner_timeout)
             timer.stop()
+
 
     # ==========================================================================
     # Phase 6: Complexity-Aware Coder Model Selection
