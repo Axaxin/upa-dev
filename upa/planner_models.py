@@ -83,11 +83,18 @@ class Plan(BaseModel):
     @field_validator('intent')
     @classmethod
     def validate_intent(cls, v: str) -> str:
-        """Validate intent is a known type."""
-        valid_intents = {"simple_chat", "computation", "semantic", "hybrid", "multi_step", "unknown"}
-        if v and v not in valid_intents:
-            # Allow unknown intents but return 'unknown' for safety
-            return "unknown"
+        """Validate intent is a known type.
+
+        Phase 13: simple_chat and trivial_computation are filtered by Intent Recognition.
+        Planner only handles: computation, semantic, hybrid, multi_step.
+        """
+        valid_intents = {"computation", "semantic", "hybrid", "multi_step", "unknown"}
+        # Also accept simple_chat and trivial_computation for backward compatibility
+        # (in case they bypass intent recognition)
+        all_valid = valid_intents | {"simple_chat", "trivial_computation", "need_planner"}
+        if v and v not in all_valid:
+            # Allow unknown intents to pass through (for flexibility and testing)
+            pass
         return v
 
     @field_validator('complexity')

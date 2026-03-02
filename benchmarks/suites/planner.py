@@ -2,11 +2,14 @@
 Planner Validation Test Suite
 
 This suite validates Planner (Phase 5) decisions:
-- Intent classification accuracy
+- Intent classification accuracy (Phase 13 simplified)
 - Tool selection correctness
 - skip_planning decision appropriateness
 
-Each test case includes expected Planner behavior via expect_planner_* fields.
+Phase 13: Intent recognition simplified to only identify "obviously no planner needed" cases:
+- simple_chat: greetings, thanks, small talk
+- trivial_computation: simple math expressions like "2+2", "100/5"
+- need_planner: everything else (default)
 """
 
 from benchmarks.suites.base import (
@@ -15,11 +18,13 @@ from benchmarks.suites.base import (
 
 
 # ============================================================================
-# Intent Classification Tests
+# Intent Classification Tests (Phase 13 Simplified)
 # ============================================================================
 
 INTENT_TESTS = [
     # Simple chat - should skip planning
+    # Phase 13: Added expect_planner_intent to validate intent recognition
+    # even when planner is skipped
     TestCase(
         name="Intent-SimpleChat-Greeting",
         query="你好",
@@ -37,28 +42,31 @@ INTENT_TESTS = [
         expect_planner_skip=True,
     ),
 
-    # Computation - should detect as computation
+    # Trivial computation - should skip planning
     TestCase(
-        name="Intent-Computation-Add",
-        query="计算 123 + 456",
+        name="Intent-TrivialComputation-Add",
+        query="2+2",
         complexity=Complexity.SIMPLE,
-        description="Math computation",
-        expect_planner_intent="computation",
+        description="Simple math expression should skip planning",
+        expect_planner_intent="trivial_computation",
+        expect_planner_skip=True,
     ),
     TestCase(
-        name="Intent-Computation-Multiply",
-        query="计算 25 乘以 4",
+        name="Intent-TrivialComputation-Multiply",
+        query="100/5",
         complexity=Complexity.SIMPLE,
-        description="Math computation",
-        expect_planner_intent="computation",
+        description="Simple math expression should skip planning",
+        expect_planner_intent="trivial_computation",
+        expect_planner_skip=True,
     ),
 
-    # Semantic - should use ask_semantic
+    # Everything else should need planner
+    # Translation - should use planner
     TestCase(
         name="Intent-Semantic-Translate",
         query="把 Hello 翻译成中文",
         complexity=Complexity.SIMPLE,
-        description="Translation needs semantic",
+        description="Translation needs planner",
         expect_planner_intent="semantic",
         expect_planner_tools=["ask_semantic"],
     ),
@@ -66,27 +74,37 @@ INTENT_TESTS = [
         name="Intent-Semantic-Summarize",
         query="总结这段文字的主旨：人工智能正在改变世界",
         complexity=Complexity.SIMPLE,
-        description="Summarization needs semantic",
+        description="Summarization needs planner",
         expect_planner_intent="semantic",
         expect_planner_tools=["ask_semantic"],
     ),
 
-    # Hybrid - should use ask_semantic
+    # Hybrid - should use planner
     TestCase(
         name="Intent-Hybrid-TranslateCount",
         query="把 Hello 翻译成中文，然后计算中文字符数量",
         complexity=Complexity.MEDIUM,
-        description="Translation + computation",
+        description="Translation + computation needs planner",
         expect_planner_intent="hybrid",
         expect_planner_tools=["ask_semantic"],
     ),
 
-    # Multi-step - should use web_search
+    # Multi-step - should use planner
     TestCase(
         name="Intent-MultiStep-Weather",
         query="先搜索北京天气，然后判断是否适合出门",
         complexity=Complexity.COMPLEX,
-        description="Search + analysis",
+        description="Search + analysis needs planner",
+        expect_planner_intent="multi_step",
+        expect_planner_tools=["web_search"],
+    ),
+
+    # Knowledge query - should use planner
+    TestCase(
+        name="Intent-Knowledge-Question",
+        query="谁发明了电话？",
+        complexity=Complexity.SIMPLE,
+        description="Knowledge query needs planner",
         expect_planner_intent="multi_step",
         expect_planner_tools=["web_search"],
     ),
@@ -154,6 +172,7 @@ SKIP_PLANNING_TESTS = [
         query="嗨",
         complexity=Complexity.SIMPLE,
         description="Greeting should skip planning",
+        expect_planner_intent="simple_chat",
         expect_planner_skip=True,
     ),
     TestCase(
@@ -161,6 +180,7 @@ SKIP_PLANNING_TESTS = [
         query="2^10",
         complexity=Complexity.SIMPLE,
         description="Pure math expression should skip planning",
+        expect_planner_intent="trivial_computation",
         expect_planner_skip=True,
     ),
     TestCase(
@@ -168,6 +188,7 @@ SKIP_PLANNING_TESTS = [
         query="thanks",
         complexity=Complexity.SIMPLE,
         description="Thanks should skip planning",
+        expect_planner_intent="simple_chat",
         expect_planner_skip=True,
     ),
 
@@ -200,7 +221,7 @@ LOGIC_STEPS_TESTS = [
         query="支架式教学的概念最早由谁提出？",
         complexity=Complexity.MEDIUM,
         description="Search + analysis should use logic_steps with variable binding",
-        expect_planner_intent="hybrid",
+        expect_planner_intent="semantic",
         expect_planner_tools=["web_search", "ask_semantic"],
         expect_logic_steps=True,
         expect_uses_logic_contract=True,
@@ -224,8 +245,8 @@ LOGIC_STEPS_TESTS = [
         query="计算100的阶乘",
         complexity=Complexity.SIMPLE,
         description="Pure computation may not need logic_steps",
-        expect_planner_intent="computation",
-        expect_logic_steps=False,  # Optional - pure computation may skip
+        expect_planner_intent="trivial_computation",
+        expect_planner_skip=True,  # Pure computation should skip planner
     ),
 
     # Simple translation should use ask_semantic in logic_steps

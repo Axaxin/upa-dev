@@ -139,6 +139,15 @@ def run_upa_test(
         logic_steps_count = 0
         uses_logic_contract = False
 
+        # Phase 13: Intent recognition result (parsed from stderr)
+        # Format: "Intent: simple_chat (confidence=1.00)"
+        intent_recognition_result = None
+        intent_recognition_confidence = None
+        intent_match = re.search(r'^Intent:\s*(\S+)\s*\(confidence=([\d.]+)\)', stderr, re.MULTILINE)
+        if intent_match:
+            intent_recognition_result = intent_match.group(1)
+            intent_recognition_confidence = float(intent_match.group(2))
+
         json_match = re.search(r"__UPA_JSON__(.+)$", stderr, re.MULTILINE | re.DOTALL)
         if json_match:
             try:
@@ -237,8 +246,11 @@ def run_upa_test(
 
         # Planner validation (for planner suite)
         if hasattr(test, 'expect_planner_intent') or hasattr(test, 'expect_planner_tools') or hasattr(test, 'expect_planner_skip'):
+            # Phase 13: Use intent recognition result when planner is skipped
+            # When skip_planning=True, planner_intent is None, so we use intent_recognition_result
+            effective_intent = planner_intent if planner_intent else intent_recognition_result
             details.planner_validation = _validate_planner(
-                test, planner_intent, planner_required_tools, planner_skip_planning,
+                test, effective_intent, planner_required_tools, planner_skip_planning,
                 logic_steps, uses_logic_contract
             )
 
@@ -340,6 +352,15 @@ def run_hybrid_test(
         logic_steps = []
         logic_steps_count = 0
         uses_logic_contract = False
+
+        # Phase 13: Intent recognition result (parsed from stderr)
+        # Format: "Intent: simple_chat (confidence=1.00)"
+        intent_recognition_result = None
+        intent_recognition_confidence = None
+        intent_match = re.search(r'^Intent:\s*(\S+)\s*\(confidence=([\d.]+)\)', stderr, re.MULTILINE)
+        if intent_match:
+            intent_recognition_result = intent_match.group(1)
+            intent_recognition_confidence = float(intent_match.group(2))
 
         json_match = re.search(r"__UPA_JSON__(.+)$", stderr, re.MULTILINE | re.DOTALL)
         if json_match:

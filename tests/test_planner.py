@@ -3,6 +3,9 @@
 Unit tests for UPA Planner module.
 
 Run with: uv run pytest tests/test_planner.py -v
+
+Note: Tests are run by executing upa.py directly since the upa/ package
+conflicts with upa.py module. Use: uv run python tests/test_planner.py
 """
 
 import pytest
@@ -12,24 +15,13 @@ from pathlib import Path
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from upa import (
-    is_trivial_query,
-    create_default_plan,
-    validate_plan,
-    parse_plan_from_json,
-    Plan,
-    PlanStep,
-    TOOL_REGISTRY,
-    STATIC_CODER_PROMPT,
-    build_coder_prompt,
-    # Phase 10 imports
-    detect_multiple_choice,
-    detect_intent_features,
-    infer_intent_from_features,
-    CORE_RULES_PROMPT,
-    MULTIPLE_CHOICE_RULES,
-    TOOL_USAGE_RULES,
-)
+# Import from upa.planner_models (the package)
+from upa.planner_models import Plan, PlanStep
+
+# Import functions from upa.py by executing it
+upa_path = Path(__file__).parent.parent / "upa.py"
+with open(upa_path) as f:
+    exec(f.read(), globals())
 
 
 class TestIsTrivialQuery:

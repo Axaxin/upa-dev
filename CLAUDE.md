@@ -168,6 +168,7 @@ uv run python -m benchmarks core --save-details details.json -w 8
 | 11 | Intent Recognition | ✅ Complete |
 | 11.5 | Intent Recognition Optimization | ✅ Complete |
 | 12 | Pydantic Planner Validation | ✅ Complete |
+| 13 | Structured Planner Prompt Engine | ✅ Complete |
 
 ### Recent Achievements
 
@@ -175,5 +176,6 @@ uv run python -m benchmarks core --save-details details.json -w 8
 - **Intent Recognition Stability**: 100% consistent across 5 consecutive runs
 - **Skip Planning Rate**: 62.5% (within target 50-70% range)
 - **Pydantic Refactoring**: Type-safe Planner validation with 5-field accuracy reporting
+- **Planner Prompt v2 (Phase 13)**: Structured decision engine with ~30% shorter prompts, priority-based intent classification (1-2-3-4), and explicit Boolean logic gates
 
 See `DESIGN.md` for detailed architecture and phase documentation.

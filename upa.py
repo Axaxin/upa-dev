@@ -42,10 +42,9 @@ class Intent:
     Intent classification result - Phase 11 新增
 
     用于独立意图识别服务，在 Planner 之前进行快速分类。
+    Phase 13 简化：只保留必要字段，移除 complexity 和 suggested_model
     """
-    category: str                   # simple_chat, computation, semantic, knowledge, multi_step, complex
-    complexity: str                 # trivial, simple, medium, complex
-    suggested_model: str | None     # 推荐的 Coder 模型（可选）
+    category: str                   # simple_chat, trivial_computation, need_planner
     requires_planning: bool         # 是否需要 Planner 分析
     confidence: float = 0.0         # 分类置信度
     reasoning: str | None = None    # 简短推理说明（用于调试）
@@ -526,41 +525,57 @@ TOOL_SELECTION_RULES = {
 }
 
 
-# Planner System Prompt
-PLANNER_SYSTEM_PROMPT = """你是一个任务规划器。分析用户查询并输出结构化的执行计划。
+# Planner System Prompt - Phase 13: Structured Decision Engine
+PLANNER_SYSTEM_PROMPT = """# Role: Planner System Engine
 
-你的职责：
-1. 识别用户意图（闲聊、计算、语义处理、多步骤任务）
-2. 评估任务复杂度
-3. 确定需要哪些工具（ask_semantic, web_search）
-4. **输出逻辑契约（logic_steps）**：带变量绑定的执行步骤，强制数据流
+## STEP 1: Tool Specification (Definitions)
+- **ask_semantic**: NLP tasks (Translation, Summary, Sentiment). Returns string.
+- **web_search**: Real-time info/Fact-check. Returns {"answer": "...", "results": [...]}.
+- **logic**: Pure math, algorithmic, or internal reasoning.
+- **set_output**: Mandatory final step. Returns final result.
 
-【重要】输出严格 JSON，且字段类型必须正确：
-- 数组字段：required_tools, relevant_modules, logic_steps, input_vars 必须是 JSON 数组 [...]，不能是字符串 "[]"
-- 对象字段：args 必须是 JSON 对象 {...}，不能是字符串 "{}"
-- 布尔字段：requires_post_processing, skip_planning 必须是 true/false，不能是 "true"/"false"
-- 数字字段：confidence 必须是数字 0.95，不能是字符串 "0.95"
+## STEP 2: Intent Classification (Priority Order)
+1. **multi_step** -> Requires external info + sequential analysis
+2. **hybrid** -> Combines linguistic task with logic/calculation
+3. **computation** -> Pure math/logic solvers
+4. **semantic** -> Pure NLP without external knowledge
 
-输出格式模板：
+## STEP 3: Planning Logic & Constraints (STRICT)
+- **ID_Sequence**: IDs must be [S1, S2, ..., Sn]
+- **Data_Flow**: Use `{var_name}` to reference outputs. NO skipping steps
+- **Final_Action**: LAST step MUST be `action="set_output"`
+- **Logic_Gate (requires_post_processing)**:
+    - `TRUE` IF (intent == "multi_step" OR "web_search" in required_tools)
+    - `FALSE` OTHERWISE
+
+## STEP 4: Complexity Matrix
+- **simple**: 1-2 steps, low reasoning
+- **medium**: 3 steps, requires data passing
+- **complex**: 4+ steps or high-depth reasoning
+
+## STEP 5: JSON Output Schema + Examples
+
+Schema:
 {
-  "intent": "simple_chat|computation|semantic|hybrid|multi_step",
-  "complexity": "trivial|simple|medium|complex",
+  "intent": "computation|semantic|hybrid|multi_step",
+  "complexity": "simple|medium|complex",
   "required_tools": [],
-  "relevant_modules": [],
-  "steps": [],
-  "logic_steps": [],
-  "expected_output_type": "string",
-  "requires_post_processing": false,
-  "output_format_hint": "",
-  "confidence": 0.95,
+  "logic_steps": [{"id": "S1", "action": "...", "args": {}, "input_vars": [], "output_var": "..."}],
+  "requires_post_processing": true|false,
+  "confidence": 0.0-1.0,
   "skip_planning": false
 }
 
-【修复模式】如果收到错误反馈（如"JSON 解析失败"），必须：
-1. 检查输出是否为 valid JSON
-2. 确保数组/对象/布尔/数字字段类型正确
-3. 重新输出完整的 JSON，不要解释
-"""
+Ex1 (multi_step): "谁发明了电话?" ->
+{"intent": "multi_step", "complexity": "medium", "required_tools": ["web_search"], "logic_steps": [{"id": "S1", "action": "web_search", "args": {"query": "电话发明者"}, "input_vars": [], "output_var": "info"}, {"id": "S2", "action": "ask_semantic", "args": {"query": "根据{info}，谁发明了电话？"}, "input_vars": ["info"], "output_var": "ans"}, {"id": "S3", "action": "set_output", "args": {"value": "{ans}"}, "input_vars": ["ans"], "output_var": "_final"}], "requires_post_processing": true, "confidence": 0.95, "skip_planning": false}
+
+Ex2 (computation): "斐波那契第10项" ->
+{"intent": "computation", "complexity": "simple", "required_tools": [], "logic_steps": [{"id": "S1", "action": "logic", "args": {}, "input_vars": [], "output_var": "r"}, {"id": "S2", "action": "set_output", "args": {"value": "{r}"}, "input_vars": ["r"], "output_var": "_final"}], "requires_post_processing": false, "confidence": 0.99, "skip_planning": false}
+
+Ex3 (semantic): "翻译Hello" ->
+{"intent": "semantic", "complexity": "simple", "required_tools": ["ask_semantic"], "logic_steps": [{"id": "S1", "action": "ask_semantic", "args": {"query": "翻译 Hello"}, "input_vars": [], "output_var": "t"}, {"id": "S2", "action": "set_output", "args": {"value": "{t}"}, "input_vars": ["t"], "output_var": "_final"}], "requires_post_processing": false, "confidence": 0.99, "skip_planning": false}
+
+Output JSON ONLY. No explanation."""
 
 # Planner Repair Prompt - 用于 JSON 解析失败时的修复请求
 PLANNER_REPAIR_PROMPT = """【JSON 格式修复】你的上一次输出解析失败。
@@ -585,119 +600,47 @@ logic_steps 数组元素格式（当需要时使用）：
 ]
 """
 
-# Append additional prompt content to PLANNER_SYSTEM_PROMPT
-PLANNER_SYSTEM_PROMPT += """
-
-工具说明：
-- ask_semantic: 用于翻译、总结、情感分析等语义任务，返回文本
-- web_search: 用于查询实时信息、事实核查，返回 {"answer": "...", "results": [...], "error": null}
-- set_output: 返回最终结果（必须调用一次）
-- logic: 纯逻辑/计算操作
-
-logic_steps 规则：
-1. 每个步骤必须有 id（S1, S2, ...）和 output_var（变量名）
-2. 使用 {var_name} 语法引用前面步骤的输出变量
-3. 工具结果必须通过变量传递，禁止跳过步骤
-4. 最后必须有一个 action="set_output" 的步骤
-
-requires_post_processing 判断规则：
-- true: 需要整理格式化输出的场景（web_search 结果整理、多步骤综合、数值结果解释）
-- false: 简单直接的输出（纯代码执行结果、简单问候、单值结果如翻译）
-
-意图判断规则：
-- simple_chat: 简单问候、闲聊、感谢 → skip_planning=true
-- computation: 纯数学计算、逻辑推理
-- semantic: 翻译、总结、情感分析等纯语义任务
-- hybrid: 语义 + 计算混合任务
-- multi_step: 需要多步骤协作（如先搜索后分析）
-
-示例 1：需要网络搜索的问题
-用户问题："支架式教学的概念最早由谁提出？A.皮亚杰 B.维果茨基 C.布鲁纳 D.斯金纳"
-输出:
-{"intent": "multi_step", "complexity": "medium", "required_tools": ["web_search", "ask_semantic"], "relevant_modules": ["json"], "logic_steps": [{"id": "S1", "action": "web_search", "args": {"query": "支架式教学概念最早提出者"}, "input_vars": [], "output_var": "search_data", "description": "搜索相关信息"}, {"id": "S2", "action": "ask_semantic", "args": {"query": "根据搜索结果 {search_data} 回答：支架式教学最早由谁提出？只返回选项字母 A/B/C/D"}, "input_vars": ["search_data"], "output_var": "answer", "description": "分析结果"}, {"id": "S3", "action": "set_output", "args": {"value": "{answer}"}, "input_vars": ["answer"], "output_var": "_final", "description": "返回最终答案"}], "requires_post_processing": false, "confidence": 0.95, "skip_planning": false}
-
-示例 2：纯计算任务
-用户问题："计算斐波那契数列第 10 项"
-输出:
-{"intent": "computation", "complexity": "simple", "required_tools": [], "relevant_modules": [], "logic_steps": [{"id": "S1", "action": "logic", "args": {}, "input_vars": [], "output_var": "result", "description": "计算斐波那契数列"}, {"id": "S2", "action": "set_output", "args": {"value": "{result}"}, "input_vars": ["result"], "output_var": "_final", "description": "返回结果"}], "requires_post_processing": false, "confidence": 0.99, "skip_planning": false}
-
-示例 3：简单闲聊
-用户问题："你好"
-输出:
-{"intent": "simple_chat", "complexity": "trivial", "required_tools": [], "relevant_modules": [], "logic_steps": [], "requires_post_processing": false, "confidence": 0.99, "skip_planning": true}
-
-示例 4：翻译任务
-用户问题："把 'Hello' 翻译成中文"
-输出:
-{"intent": "semantic", "complexity": "simple", "required_tools": ["ask_semantic"], "relevant_modules": [], "logic_steps": [{"id": "S1", "action": "ask_semantic", "args": {"query": "把 'Hello' 翻译成中文"}, "input_vars": [], "output_var": "translation", "description": "翻译"}, {"id": "S2", "action": "set_output", "args": {"value": "{translation}"}, "input_vars": ["translation"], "output_var": "_final", "description": "返回结果"}], "requires_post_processing": false, "confidence": 0.99, "skip_planning": false}
-
-只输出 JSON，不要其他文字。
-"""
-
 # =============================================================================
 # Phase 11: Intent Recognition Prompts
 # =============================================================================
 
 INTENT_CLASSIFICATION_PROMPT = """
-你是一个意图分类器。分析用户查询并输出分类结果。
+# Role: Quick Filter - Decide if Planner is needed
 
-## 类别定义（互斥，选最匹配的）
+## Skip Planner (requires_planning = false) ONLY when:
 
-- **simple_chat**: 问候、闲聊、感谢
-  - 例："你好"、"谢谢"、"早上好"、"Hi"
+1. **simple_chat**: 问候、闲聊、感谢
+   - 例："你好"、"谢谢"、"Hi"、"早上好"
 
-- **computation**: 纯数学计算、公式求解、数值运算
-  - 例："2+2=?"、"求积分∫x²dx"、"解方程 2x+3=7"、"计算组合数 C(5,3)"
-  - 特征：有明确数值答案，可通过编程直接计算
+2. **trivial_computation**: 简单数学表达式
+   - 例："2+2"、"100/5"、"3^4"
 
-- **semantic**: 语言相关的语义任务
-  - 例："翻译成英文"、"总结这篇文章"、"分析这句话的情感"
-  - 特征：输入输出都是自然语言，不需要外部知识
+## Use Planner (requires_planning = true) for EVERYTHING else:
 
-- **knowledge**: 事实/概念/理论查询（新增）
-  - 例："什么是 Porter 五力"、"维果茨基是谁"、"社会契约论的观点"、"文艺复兴的背景"
-  - 特征：需要特定领域知识（历史、政治、经济、管理、物理、化学、生物等）
+- semantic tasks (翻译、总结、情感分析)
+- knowledge queries (事实、概念、理论)
+- multi-step tasks
+- complex reasoning
+- medium/complex computation
+- any uncertainty
 
-- **multi_step**: 需要多步骤协作或外部工具
-  - 例："先搜索 X 概念，然后分析它与 Y 的关系"
-  - 特征：明确需要 web_search 或 ask_semantic 工具
+## Decision Rule (Simple Boolean Logic)
 
-- **complex**: 复杂推理，需要深度分析或多步推导
-  - 例："证明 X 定理"、"分析 X 现象的多个影响因素"
-  - 特征：推理链条长，需要多步逻辑推导
+```
+requires_planning = FALSE only if:
+  - category in ["simple_chat", "trivial_computation"]
 
-## 复杂度分级
+requires_planning = TRUE otherwise (default)
+```
 
-- **trivial**: 条件反射式回答（<5 秒）
-- **simple**: 一步处理（<30 秒）
-- **medium**: 2-3 步处理（<2 分钟）
-- **complex**: 4 步以上或深度推理（>2 分钟）
+## Output Format (Strict JSON)
 
-## requires_planning 判断规则（重要）
-
-输出 `true` 的情况：
-1. 类别是 knowledge 或 multi_step
-2. 类别是 complex（无论什么领域）
-3. 类别是 computation 但复杂度是 medium 或 complex
-4. 涉及专业领域知识（物理、化学、生物、历史、政治、经济、管理等）
-
-输出 `false` 的情况：
-1. 类别是 simple_chat
-2. 类别是 computation 且复杂度是 trivial 或 simple（纯数学计算）
-3. 类别是 semantic 且复杂度是 trivial 或 simple（简单翻译/总结）
-
-## 输出格式
-
-严格 JSON：
 {
-  "category": "simple_chat|computation|semantic|knowledge|multi_step|complex",
-  "complexity": "trivial|simple|medium|complex",
+  "category": "simple_chat|trivial_computation|need_planner",
   "requires_planning": true|false,
   "confidence": 0.0-1.0,
-  "reasoning": "一句话说明分类依据"
+  "reasoning": "Brief explanation"
 }
-
-只输出 JSON，不要其他内容。
 """
 
 # =============================================================================
@@ -708,18 +651,19 @@ def recognize_intent(
     client: OpenAI,
     query: str,
     model: str,
-    timeout: float = 10.0,
+    timeout: float = 5.0,  # Phase 13: reduced timeout since prompt is shorter
     max_retries: int = 2,
     base_delay: float = 0.5,
 ) -> Intent:
     """
     使用快速模型进行意图分类 - Phase 11 新增
+    Phase 13 简化：Prompt 简化为约 30 行，只识别 simple_chat/trivial_computation
 
     Args:
         client: OpenAI 客户端
         query: 用户查询
         model: 模型名称
-        timeout: 超时时间
+        timeout: 超时时间 (Phase 13: 默认降低到 5 秒)
         max_retries: 重试次数
         base_delay: 基础延迟
 
@@ -748,7 +692,7 @@ def recognize_intent(
                 {"role": "user", "content": query}
             ],
             "temperature": 0.0,  # Deterministic classification
-            "max_tokens": 200,   # Concise JSON output
+            "max_tokens": 150,   # Concise JSON output (reduced from 200)
         }
 
         # Add JSON mode for models that support it
@@ -787,8 +731,6 @@ def recognize_intent(
                     # Return low-confidence default intent
                     return Intent(
                         category="unknown",
-                        complexity="simple",
-                        suggested_model=None,
                         requires_planning=False,
                         confidence=0.0,
                         reasoning=f"API error: {type(e).__name__}",
@@ -798,8 +740,6 @@ def recognize_intent(
                 # Non-retryable error, return default
                 return Intent(
                     category="unknown",
-                    complexity="simple",
-                    suggested_model=None,
                     requires_planning=False,
                     confidence=0.0,
                     reasoning=f"Unexpected error: {type(e).__name__}",
@@ -813,8 +753,6 @@ def recognize_intent(
             data = json.loads(content)
             return Intent(
                 category=data.get("category", "unknown"),
-                complexity=data.get("complexity", "simple"),
-                suggested_model=data.get("suggested_model"),
                 requires_planning=data.get("requires_planning", False),
                 confidence=float(data.get("confidence", 0.0)),
                 reasoning=data.get("reasoning"),
@@ -827,8 +765,6 @@ def recognize_intent(
                     data = json.loads(json_match.group())
                     return Intent(
                         category=data.get("category", "unknown"),
-                        complexity=data.get("complexity", "simple"),
-                        suggested_model=data.get("suggested_model"),
                         requires_planning=data.get("requires_planning", False),
                         confidence=float(data.get("confidence", 0.0)),
                         reasoning=data.get("reasoning"),
@@ -839,8 +775,6 @@ def recognize_intent(
             # JSON parsing failed, return low-confidence intent
             return Intent(
                 category="unknown",
-                complexity="simple",
-                suggested_model=None,
                 requires_planning=False,
                 confidence=0.0,
                 reasoning=f"JSON parse error: {str(e)}",
@@ -907,6 +841,7 @@ def create_default_plan(
 def create_plan_from_intent(intent: Intent) -> Plan:
     """
     根据 Intent 创建简化的 Plan - Phase 11 新增.
+    Phase 13 简化：Intent 不再包含 complexity 字段
 
     用于简单任务跳过 Planner 时，基于意图分类结果快速构建 Plan。
 
@@ -917,17 +852,20 @@ def create_plan_from_intent(intent: Intent) -> Plan:
         Plan 对象
     """
     # Map intent category to required tools
+    # Phase 13: simplified categories (simple_chat, trivial_computation, need_planner)
     tool_map = {
         "simple_chat": [],
-        "computation": [],
-        "semantic": ["ask_semantic"],
-        "multi_step": ["web_search"],
-        "complex": ["web_search", "ask_semantic"],
+        "trivial_computation": [],
+        "need_planner": [],  # Should not reach here, but safe default
     }
+
+    # Determine complexity based on category (Phase 13 simplification)
+    # simple_chat and trivial_computation are always "trivial"
+    complexity = "trivial" if intent.category in ["simple_chat", "trivial_computation"] else "simple"
 
     return Plan(
         intent=intent.category,
-        complexity=intent.complexity,
+        complexity=complexity,
         steps=[],
         logic_steps=[],
         required_tools=tool_map.get(intent.category, []),
@@ -944,14 +882,40 @@ def validate_plan(plan: Plan) -> Plan:
     Note: Most validation is now handled by Pydantic in the Plan model.
     This function provides additional runtime validation and sanitization.
     """
-    # Pydantic already validates:
-    # - intent (valid values)
-    # - complexity (valid values)
-    # - confidence (0.0-1.0 range)
-    # - required_tools (filtered to valid tools)
-    # - steps (capped at 5)
+    # Get list of valid tools from registry
+    valid_tools = set(TOOL_REGISTRY.keys())
 
-    # Additional runtime validation can be added here if needed
+    # Filter invalid tools from required_tools
+    if plan.required_tools:
+        original_tools = plan.required_tools.copy()
+        plan.required_tools = [tool for tool in plan.required_tools if tool in valid_tools]
+        if len(plan.required_tools) < len(original_tools):
+            removed = set(original_tools) - set(plan.required_tools)
+            print(f"ValidatePlan: Removed invalid tools: {removed}", file=sys.stderr)
+
+    # Filter invalid tools from steps
+    if plan.steps:
+        for step in plan.steps:
+            if step.tool_needed and step.tool_needed not in valid_tools:
+                step.tool_needed = None
+
+    # Filter invalid tools from logic_steps
+    if plan.logic_steps:
+        for ls in plan.logic_steps:
+            if ls.action and ls.action not in valid_tools and ls.action not in {"logic", "set_output", "get_output"}:
+                ls.action = "ask_semantic"  # Default to safe action
+
+    # Cap steps at 5
+    if len(plan.steps) > 5:
+        plan.steps = plan.steps[:5]
+        plan.coding_hints.append("任务已简化，仅保留前 5 个步骤")
+
+    # Clamp confidence to [0, 1]
+    if plan.confidence < 0:
+        plan.confidence = 0.0
+    elif plan.confidence > 1:
+        plan.confidence = 1.0
+
     return plan
 
 
@@ -1089,8 +1053,13 @@ def parse_plan_from_json(json_str: str) -> Plan | None:
             return Plan.model_validate(data)
         except Exception as e2:
             print(f"Planner: Repair failed - {e2}", file=sys.stderr)
-            # Return a default plan on validation failure
-            return create_default_plan()
+            # Return a default plan, but preserve the original intent if available
+            original_intent = data.get("intent") if isinstance(data, dict) else None
+            if original_intent:
+                default_plan = create_default_plan(intent=original_intent)
+            else:
+                default_plan = create_default_plan()
+            return default_plan
 
 
 def run_planner(
@@ -2995,7 +2964,7 @@ def main():
                 print(f"Intent: Low confidence ({intent.confidence:.2f}), running Planner for safety", file=sys.stderr)
                 intent.requires_planning = True
 
-            print(f"Intent: {intent.category} ({intent.complexity}, confidence={intent.confidence:.2f})", file=sys.stderr)
+            print(f"Intent: {intent.category} (confidence={intent.confidence:.2f})", file=sys.stderr)
 
     # ==========================================================================
     # Phase 0: Planner Analysis (Dynamic Prompt Construction)
